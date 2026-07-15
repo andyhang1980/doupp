@@ -83,6 +83,22 @@ class FeedHook : BaseHook {
                     })
                     HookUtils.log("$TAG: Hook Aweme.${videoMethod.name} (缓存当前 Aweme)")
                     hooked = true
+                } else {
+                    // 兜底：返回类型名含 "Video" 的无参方法（混淆后 getVideo 被改名时）
+                    val videoByType = awemeClass.declaredMethods.firstOrNull { m ->
+                        m.parameterCount == 0 &&
+                                m.returnType != Void.TYPE &&
+                                m.returnType.simpleName.contains("Video", ignoreCase = true)
+                    }
+                    if (videoByType != null) {
+                        XposedBridge.hookMethod(videoByType, object : XC_MethodHook() {
+                            override fun afterHookedMethod(param: MethodHookParam) {
+                                try { MediaCache.setCurrentAweme(param.thisObject) } catch (_: Throwable) {}
+                            }
+                        })
+                        HookUtils.log("$TAG: Hook Aweme.${videoByType.name} (按返回类型缓存 Video)")
+                        hooked = true
+                    }
                 }
 
                 // 同时 Hook getAwemeId() — 图文/视频条等内容也会调用
@@ -102,6 +118,22 @@ class FeedHook : BaseHook {
                     })
                     HookUtils.log("$TAG: Hook Aweme.${idMethod.name} (补充缓存)")
                     hooked = true
+                } else {
+                    // 兜底：返回 String 且方法名含 "id" 的方法（混淆后 getAwemeId 被改名时）
+                    val idByType = awemeClass.declaredMethods.firstOrNull { m ->
+                        m.parameterCount == 0 &&
+                                m.returnType == String::class.java &&
+                                m.name.contains("id", ignoreCase = true)
+                    }
+                    if (idByType != null && idByType != videoMethod) {
+                        XposedBridge.hookMethod(idByType, object : XC_MethodHook() {
+                            override fun afterHookedMethod(param: MethodHookParam) {
+                                try { MediaCache.setCurrentAweme(param.thisObject) } catch (_: Throwable) {}
+                            }
+                        })
+                        HookUtils.log("$TAG: Hook Aweme.${idByType.name} (按返回类型补充缓存)")
+                        hooked = true
+                    }
                 }
 
                 if (hooked) {

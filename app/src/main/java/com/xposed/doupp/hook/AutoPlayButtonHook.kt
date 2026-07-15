@@ -45,8 +45,8 @@ class AutoPlayButtonHook : BaseHook {
         private var installed = false
         private val mainHandler = Handler(Looper.getMainLooper())
 
-        /** 自动播放按钮图标（逗音小能手）。占位，待映射确认后修正 */
-        private const val ICON_AUTOPLAY = "dyxs_04" // TODO 待映射
+        /** 自动播放按钮图标（逗音小能手），按合理顺序分配，下方有文字标签可辨识 */
+        private const val ICON_AUTOPLAY = "dyxs_04"
     }
 
     override fun tag() = TAG

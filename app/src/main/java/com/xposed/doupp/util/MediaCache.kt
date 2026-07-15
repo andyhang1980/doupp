@@ -133,12 +133,9 @@ object MediaCache {
      */
     fun getVideoUrlFromAweme(aweme: Any): String? {
         try {
-            // 查找 Video 对象（使用 getFieldDeep 查找父类字段，兼容混淆后字段在父类的情况）
+            // 查找 Video 对象（字段/getter 双兜底，兼容混淆）
             var video: Any? = null
-            for (fieldName in VIDEO_FIELD_NAMES) {
-                video = getFieldDeep(aweme, fieldName)
-                if (video != null) break
-            }
+            video = objByNames(aweme, VIDEO_FIELD_NAMES)
             if (video == null) return null
 
             HookUtils.log("MediaCache: 找到 Video 对象: ${video.javaClass.name}")
@@ -149,7 +146,8 @@ object MediaCache {
                 if (addr == null) return
                 // urlList 中所有 http 链接都收集（不只取第一个）
                 for (listName in URL_LIST_FIELD_NAMES) {
-                    val urlList = getFieldDeep(addr, listName) as? List<*>
+                    val urlList = objByNames(addr, listOf(listName)) as? List<*>
+                        ?: (getField(addr, listName) as? List<*>)
                     urlList?.filterIsInstance<String>()
                         ?.filter { it.startsWith("http") }
                         ?.let { candidates.addAll(it) }
@@ -158,17 +156,15 @@ object MediaCache {
             }
 
             // downloadAddr（优先使用 getFieldDeep 查找父类字段）
-            addFromAddr(getFieldDeep(video, "downloadAddr") ?: getFieldDeep(video, "download_addr"))
-            // 各种 playAddr 字段（同样使用 getFieldDeep）
+            addFromAddr(objByNames(video, listOf("downloadAddr", "download_addr")))
+            // 各种 playAddr 字段（同样使用 getFieldDeep / getter）
             for (addrName in PLAY_ADDR_FIELD_NAMES) {
-                addFromAddr(getFieldDeep(video, addrName))
+                addFromAddr(objByNames(video, listOf(addrName)))
             }
             // 新增：尝试查找 videoResource 字段（新版抖音结构）
-            addFromAddr(getFieldDeep(video, "videoResource"))
-            addFromAddr(getFieldDeep(video, "mVideoResource"))
+            addFromAddr(objByNames(video, listOf("videoResource", "mVideoResource")))
             // 新增：尝试查找 mediaUrl 字段
-            addFromAddr(getFieldDeep(video, "mediaUrl"))
-            addFromAddr(getFieldDeep(video, "mMediaUrl"))
+            addFromAddr(objByNames(video, listOf("mediaUrl", "mMediaUrl")))
             // 递归兜底
             findAllUrlsInObject(video, 0, candidates)
 
@@ -243,12 +239,12 @@ object MediaCache {
      */
     private fun extractUrlFromVideoResource(video: Any): String? {
         try {
-            val videoResource = getFieldDeep(video, "videoResource") ?: getFieldDeep(video, "mVideoResource")
+            val videoResource = objByNames(video, listOf("videoResource", "mVideoResource"))
             if (videoResource == null) return null
 
             // 尝试直接获取 URL
             for (listName in URL_LIST_FIELD_NAMES) {
-                val urlList = getFieldDeep(videoResource, listName) as? List<*>
+                val urlList = objByNames(videoResource, listOf(listName)) as? List<*>
                 if (urlList != null) {
                     val cleanUrl = urlList.filterIsInstance<String>()
                         .filter { it.startsWith("http") }
@@ -285,19 +281,16 @@ object MediaCache {
      */
     private fun extractBitRatePlayAddr(video: Any): String? {
         try {
-            val brList = getFieldDeep(video, "bitRateList")
-                ?: getFieldDeep(video, "bitrateList")
+            val brList = objByNames(video, listOf("bitRateList", "bitrateList"))
                 ?: return null
             if (brList !is List<*>) return null
 
             var best: Pair<Int, String>? = null
             for (entry in brList) {
                 if (entry == null) continue
-                val bitRate = (getFieldDeep(entry, "bitRate") as? Number)?.toInt()
-                    ?: (getFieldDeep(entry, "bitrate") as? Number)?.toInt()
+                val bitRate = (objByNames(entry, listOf("bitRate", "bitrate")) as? Number)?.toInt()
                     ?: continue
-                val playAddr = getFieldDeep(entry, "playAddr")
-                    ?: getFieldDeep(entry, "play_addr")
+                val playAddr = objByNames(entry, listOf("playAddr", "play_addr"))
                     ?: continue
                 val urls = collectUrlsFromAddr(playAddr) ?: continue
                 val clean = urls.firstOrNull { u -> isCleanPlaybackUrl(u) }
@@ -470,7 +463,8 @@ object MediaCache {
         val urls = mutableListOf<String>()
         try {
             for (fieldName in IMAGE_FIELD_NAMES) {
-                val imageList = getField(aweme, fieldName)
+                val imageList = objByNames(aweme, listOf(fieldName))
+                    ?: (getField(aweme, fieldName))
                 if (imageList is List<*>) {
                     for (image in imageList) {
                         if (image == null) continue
@@ -478,8 +472,8 @@ object MediaCache {
                         var found = false
                         // 尝试 urlList 字段
                         for (listName in URL_LIST_FIELD_NAMES) {
-                            val urlList = getField(image, listName) as? List<*>
-                                ?: getFieldDeep(image, listName) as? List<*>
+                            val urlList = objByNames(image, listOf(listName)) as? List<*>
+                                ?: (getField(image, listName) as? List<*>)
                             if (urlList != null) {
                                 val url = urlList.filterIsInstance<String>().firstOrNull { it.isNotEmpty() && it.startsWith("http") }
                                 if (url != null) {
@@ -513,9 +507,12 @@ object MediaCache {
         try {
             // 查找 Music 对象
             var music: Any? = null
-            for (fieldName in MUSIC_FIELD_NAMES) {
-                music = getField(aweme, fieldName)
-                if (music != null) break
+            music = objByNames(aweme, MUSIC_FIELD_NAMES) ?: run {
+                for (fieldName in MUSIC_FIELD_NAMES) {
+                    val m = getField(aweme, fieldName)
+                    if (m != null) { music = m; break }
+                }
+                music
             }
             if (music == null) {
                 HookUtils.log("MediaCache: 未找到 music 字段")
@@ -524,7 +521,7 @@ object MediaCache {
 
             // 尝试各种 URL 字段
             for (urlFieldName in MUSIC_URL_FIELD_NAMES) {
-                val urlObj = getField(music, urlFieldName) ?: continue
+                val urlObj = objByNames(music, listOf(urlFieldName)) ?: (getField(music, urlFieldName)) ?: continue
                 val url = extractUrlFromObject(urlObj)
                 if (url != null) return url
             }
@@ -551,7 +548,8 @@ object MediaCache {
             if (music == null) return null
 
             for (titleField in MUSIC_TITLE_FIELD_NAMES) {
-                val title = getField(music, titleField) as? String
+                val title = objByNames(music, listOf(titleField)) as? String
+                    ?: (getField(music, titleField) as? String)
                 if (!title.isNullOrEmpty()) return title
             }
         } catch (_: Throwable) {}
@@ -564,15 +562,18 @@ object MediaCache {
     fun getAwemeDesc(aweme: Any): String? {
         try {
             for (fieldName in DESC_FIELD_NAMES) {
-                val desc = getField(aweme, fieldName) as? String
+                val desc = objByNames(aweme, listOf(fieldName)) as? String
+                    ?: (getField(aweme, fieldName) as? String)
                 if (!desc.isNullOrEmpty()) return desc
             }
 
             // 尝试 shareInfo 中的 share_desc
-            val shareInfo = getField(aweme, "shareInfo")
+            val shareInfo = objByNames(aweme, listOf("shareInfo"))
+                ?: (getField(aweme, "shareInfo"))
             if (shareInfo != null) {
-                val shareDesc = getField(shareInfo, "share_desc") as? String
-                    ?: getField(shareInfo, "shareDesc") as? String
+                val shareDesc = objByNames(shareInfo, listOf("share_desc", "shareDesc")) as? String
+                    ?: (getField(shareInfo, "share_desc") as? String)
+                    ?: (getField(shareInfo, "shareDesc") as? String)
                 if (!shareDesc.isNullOrEmpty()) return shareDesc
             }
         } catch (_: Throwable) {}
@@ -660,15 +661,13 @@ object MediaCache {
         return try {
             val aweme = getCurrentAweme() ?: return null
             var video: Any? = null
-            for (fieldName in VIDEO_FIELD_NAMES) {
-                video = getFieldDeep(aweme, fieldName)
-                if (video != null) break
-            }
+            video = objByNames(aweme, VIDEO_FIELD_NAMES)
             val targets = listOfNotNull(aweme, video)
             val found = mutableListOf<Pair<String, Double>>()
             for (target in targets) {
                 for (fieldName in DURATION_FIELD_NAMES) {
-                    val v = getFieldDeep(target, fieldName) as? Number ?: continue
+                    val v = objByNames(target, listOf(fieldName)) as? Number
+                        ?: (getFieldDeep(target, fieldName) as? Number) ?: continue
                     val d = v.toDouble()
                     if (d <= 0.0) continue
                     val sec = if (d > 1000.0) d / 1000.0 else d
@@ -688,7 +687,8 @@ object MediaCache {
             val VIDEO_PRIORITY = listOf("duration", "videoDuration", "Duration", "realDuration", "durationMs", "playDuration")
             if (video != null) {
                 for (fieldName in VIDEO_PRIORITY) {
-                    val v = getFieldDeep(video, fieldName) as? Number ?: continue
+                    val v = objByNames(video, listOf(fieldName)) as? Number
+                        ?: (getFieldDeep(video, fieldName) as? Number) ?: continue
                     val d = v.toDouble()
                     if (d <= 0.0) continue
                     val sec = if (d > 1000.0) d / 1000.0 else d
@@ -737,7 +737,7 @@ object MediaCache {
     private fun getImageCount(aweme: Any): Int {
         return try {
             for (fieldName in IMAGE_FIELD_NAMES) {
-                val imageList = getField(aweme, fieldName)
+                val imageList = objByNames(aweme, listOf(fieldName)) ?: (getField(aweme, fieldName))
                 if (imageList is List<*> && imageList.isNotEmpty()) {
                     return imageList.size
                 }
@@ -826,5 +826,51 @@ object MediaCache {
             }
         }
         return null
+    }
+
+    /**
+     * 兼容混淆: 先尝试字段，再尝试无参 getter 方法（方法名等于候选名或 getXxx）。
+     * 抖音 release 会把模型字段/方法混淆，仅靠字段名提取在 39.x 会失效，
+     * 因此增加 getter 兜底。数据类 getter 通常为纯读取，调用安全。
+     */
+    private fun objByNames(obj: Any?, names: List<String>): Any? {
+        if (obj == null) return null
+        for (n in names) {
+            val f = getFieldDeep(obj, n)
+            if (f != null) return f
+        }
+        try {
+            val lowerNames = names.map { it.lowercase() }
+            var clazz: Class<*>? = obj.javaClass
+            while (clazz != null) {
+                for (m in clazz.declaredMethods) {
+                    if (m.parameterCount != 0 || m.returnType == Void.TYPE || m.name.contains("$")) continue
+                    val ml = m.name.lowercase()
+                    val hit = lowerNames.any { ln -> ml == ln || ml == "get$ln" || ml.endsWith(ln) }
+                    if (!hit) continue
+                    try {
+                        m.isAccessible = true
+                        val r = m.invoke(obj)
+                        if (r != null) return r
+                    } catch (_: Throwable) {}
+                }
+                clazz = clazz.superclass
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    /** 从 addr 对象收集所有 http URL（字段名或 getter 均可） */
+    private fun collectUrlsFromAddr(addr: Any): List<String>? {
+        val out = mutableListOf<String>()
+        for (listName in URL_LIST_FIELD_NAMES) {
+            val urlList = objByNames(addr, listName) as? List<*>
+                ?: (getField(addr, listName) as? List<*>)
+            urlList?.filterIsInstance<String>()
+                ?.filter { it.startsWith("http") }
+                ?.let { out.addAll(it) }
+        }
+        if (addr is String && addr.startsWith("http")) out.add(addr)
+        return if (out.isEmpty()) null else out
     }
 }

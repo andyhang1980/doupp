@@ -47,14 +47,15 @@ class SharePanelHook : BaseHook {
         private var installed = false
 
         /**
-         * 图标映射（资源名 -> 功能）。当前为占位，待对照逗音小能手预览页确认后修正。
-         * 对应图标列表见 IconPreviewActivity（桌面「Dou++ 图标预览」）。
+         * 图标映射（逗音小能手资源名 -> 功能）。
+         * 无法从 APK 还原精确对应关系，这里按合理顺序分配各功能的逗音小能手图标；
+         * 按钮下方均有中文文字标签，功能始终可辨识。如需微调见 IconPreviewActivity。
          */
-        private const val ICON_DOWNLOAD_VIDEO = "dyxs_03" // TODO 待映射
-        private const val ICON_DOWNLOAD_MUSIC = "dyxs_16" // TODO 待映射
-        private const val ICON_DOWNLOAD_IMAGE = "dyxs_22" // TODO 待映射
-        private const val ICON_COPY_TEXT     = "dyxs_06" // TODO 待映射
-        private const val ICON_SETTINGS      = "dyxs_10" // TODO 待映射
+        private const val ICON_DOWNLOAD_VIDEO = "dyxs_03"
+        private const val ICON_DOWNLOAD_MUSIC = "dyxs_16"
+        private const val ICON_DOWNLOAD_IMAGE = "dyxs_22"
+        private const val ICON_COPY_TEXT     = "dyxs_06"
+        private const val ICON_SETTINGS      = "dyxs_10"
 
         /** 抖音分享面板相关类名特征 */
         private val SHARE_PANEL_CLASS_KEYWORDS = arrayOf(
@@ -420,9 +421,6 @@ class SharePanelHook : BaseHook {
                     val d = IconRes.getDrawable(context, iconName)
                     if (d != null) {
                         setImageDrawable(d)
-                    } else {
-                        // 兜底: 文字首字
-                        setImageDrawable(null)
                     }
                     layoutParams = FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
@@ -434,6 +432,19 @@ class SharePanelHook : BaseHook {
                     }
                 }
                 addView(iconView)
+                // 兜底：图标缺失时显示文字首字，保证按钮始终可识别
+                if (IconRes.getDrawable(context, iconName) == null) {
+                    iconContainer.addView(TextView(context).apply {
+                        text = label.take(1)
+                        setTextColor(Color.WHITE)
+                        textSize = 16f
+                        gravity = Gravity.CENTER
+                        layoutParams = FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        ).apply { gravity = Gravity.CENTER }
+                    })
+                }
             }
             addView(iconContainer)
 
