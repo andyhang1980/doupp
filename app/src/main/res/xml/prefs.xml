@@ -1,0 +1,293 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ==================== 下载功能 ==================== -->
+    <PreferenceCategory android:title="@string/category_download">
+
+        <CheckBoxPreference
+            android:key="download_video"
+            android:title="@string/pref_download_video_title"
+            android:summary="@string/pref_download_video_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="download_music"
+            android:title="@string/pref_download_music_title"
+            android:summary="@string/pref_download_music_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="download_image"
+            android:title="@string/pref_download_image_title"
+            android:summary="@string/pref_download_image_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="copy_text"
+            android:title="@string/pref_copy_text_title"
+            android:summary="@string/pref_copy_text_summary"
+            android:defaultValue="true" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 增强功能 ==================== -->
+    <PreferenceCategory android:title="@string/category_enhance">
+
+        <CheckBoxPreference
+            android:key="remove_ad"
+            android:title="@string/pref_remove_ad_title"
+            android:summary="@string/pref_remove_ad_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="skip_splash_ad"
+            android:title="@string/pref_skip_splash_ad_title"
+            android:summary="@string/pref_skip_splash_ad_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="block_feed_keywords"
+            android:title="@string/pref_block_feed_keywords_title"
+            android:summary="@string/pref_block_feed_keywords_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="block_shopping"
+            android:title="@string/pref_block_shopping_title"
+            android:summary="@string/pref_block_shopping_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="hide_ad_labels"
+            android:title="@string/pref_hide_ad_labels_title"
+            android:summary="@string/pref_hide_ad_labels_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="block_ad_sdk"
+            android:title="@string/pref_block_ad_sdk_title"
+            android:summary="@string/pref_block_ad_sdk_summary"
+            android:defaultValue="true" />
+
+        <EditTextPreference
+            android:key="ad_keywords"
+            android:title="@string/pref_ad_keywords_title"
+            android:summary="@string/pref_ad_keywords_summary"
+            android:defaultValue="" />
+
+        <CheckBoxPreference
+            android:key="block_hot_update"
+            android:title="@string/pref_block_hot_update_title"
+            android:summary="@string/pref_block_hot_update_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="auto_play"
+            android:title="@string/pref_auto_play_title"
+            android:summary="@string/pref_auto_play_summary"
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 自动保存 ==================== -->
+    <PreferenceCategory android:title="@string/category_auto_save">
+
+        <CheckBoxPreference
+            android:key="auto_save_video"
+            android:title="@string/pref_auto_save_video_title"
+            android:summary="@string/pref_auto_save_video_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="auto_save_images"
+            android:title="@string/pref_auto_save_images_title"
+            android:summary="@string/pref_auto_save_images_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="auto_save_live_photo"
+            android:title="@string/pref_auto_save_live_photo_title"
+            android:summary="@string/pref_auto_save_live_photo_summary"
+            android:defaultValue="true" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 评论区 ==================== -->
+    <PreferenceCategory android:title="@string/category_comment">
+
+        <CheckBoxPreference
+            android:key="save_comment_media"
+            android:title="@string/pref_save_comment_media_title"
+            android:summary="@string/pref_save_comment_media_summary"
+            android:defaultValue="true" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 存储 ==================== -->
+    <PreferenceCategory android:title="@string/category_storage">
+
+        <EditTextPreference
+            android:key="save_directory"
+            android:title="@string/pref_save_directory_title"
+            android:summary="@string/pref_save_directory_summary"
+            android:defaultValue="@string/pref_save_directory_default" />
+
+        <ListPreference
+            android:key="download_quality"
+            android:title="@string/pref_download_quality_title"
+            android:summary="@string/pref_download_quality_summary"
+            android:entries="@array/download_quality_entries"
+            android:entryValues="@array/download_quality_values"
+            android:defaultValue="high" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 视频过滤 ==================== -->
+    <PreferenceCategory android:title="@string/category_video_filter">
+
+        <CheckBoxPreference
+            android:key="video_filter"
+            android:title="@string/pref_video_filter_title"
+            android:summary="@string/pref_video_filter_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="filter_live"
+            android:title="@string/pref_filter_live_title"
+            android:summary="@string/pref_filter_live_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="filter_image"
+            android:title="@string/pref_filter_image_title"
+            android:summary="@string/pref_filter_image_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="filter_ad"
+            android:title="@string/pref_filter_ad_title"
+            android:summary="@string/pref_filter_ad_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="filter_long_video"
+            android:title="@string/pref_filter_long_video_title"
+            android:summary="@string/pref_filter_long_video_summary"
+            android:defaultValue="false" />
+
+        <ListPreference
+            android:key="long_video_seconds"
+            android:title="@string/pref_long_video_seconds_title"
+            android:summary="@string/pref_long_video_seconds_summary"
+            android:entries="@array/long_video_seconds_entries"
+            android:entryValues="@array/long_video_seconds_values"
+            android:defaultValue="300" />
+
+        <EditTextPreference
+            android:key="filter_keywords"
+            android:title="@string/pref_filter_keywords_title"
+            android:summary="@string/pref_filter_keywords_summary"
+            android:defaultValue="" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 清爽模式 ==================== -->
+    <PreferenceCategory android:title="@string/category_clean_mode">
+
+        <CheckBoxPreference
+            android:key="clean_mode"
+            android:title="@string/pref_clean_mode_title"
+            android:summary="@string/pref_clean_mode_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="hide_guide"
+            android:title="@string/pref_hide_guide_title"
+            android:summary="@string/pref_hide_guide_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="hide_comment_entry"
+            android:title="@string/pref_hide_comment_entry_title"
+            android:summary="@string/pref_hide_comment_entry_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="hide_share_entry"
+            android:title="@string/pref_hide_share_entry_title"
+            android:summary="@string/pref_hide_share_entry_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="hide_like_button"
+            android:title="@string/pref_hide_like_button_title"
+            android:summary="@string/pref_hide_like_button_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="hide_bottom_tab"
+            android:title="@string/pref_hide_bottom_tab_title"
+            android:summary="@string/pref_hide_bottom_tab_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="hide_top_bar"
+            android:title="@string/pref_hide_top_bar_title"
+            android:summary="@string/pref_hide_top_bar_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="hide_music_disc"
+            android:title="@string/pref_hide_music_disc_title"
+            android:summary="@string/pref_hide_music_disc_summary"
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 双击行为 ==================== -->
+    <PreferenceCategory android:title="@string/category_double_click">
+
+        <ListPreference
+            android:key="double_click_action"
+            android:title="@string/pref_double_click_title"
+            android:summary="@string/pref_double_click_summary"
+            android:entries="@array/double_click_entries"
+            android:entryValues="@array/double_click_values"
+            android:defaultValue="like" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 界面 ==================== -->
+    <PreferenceCategory android:title="@string/category_ui">
+
+        <CheckBoxPreference
+            android:key="show_toast"
+            android:title="@string/pref_show_toast_title"
+            android:summary="@string/pref_show_toast_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="show_notification"
+            android:title="@string/pref_show_notification_title"
+            android:summary="@string/pref_show_notification_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="keep_alive"
+            android:title="@string/pref_keep_alive_title"
+            android:summary="@string/pref_keep_alive_summary"
+            android:defaultValue="true" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 关于 ==================== -->
+    <PreferenceCategory android:title="@string/category_about">
+
+        <Preference
+            android:key="telegram"
+            android:title="@string/pref_telegram_title"
+            android:summary="@string/pref_telegram_summary" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

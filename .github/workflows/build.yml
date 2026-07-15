@@ -1,0 +1,94 @@
+name: Build & Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+          packages: >-
+            platforms;android-34
+            build-tools;34.0.0
+            platform-tools
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: wrapper
+
+      - name: Build Debug APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload Debug Artifact
+        if: ${{ github.ref_type != 'tag' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: doupp-debug
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Rename APK
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          cp app/build/outputs/apk/debug/app-debug.apk "doupp-${TAG}.apk"
+          echo "APK_PATH=doupp-${TAG}.apk" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Dou++ ${{ github.ref_name }}
+          body: |
+            ## Dou++ ${{ github.ref_name }}
+
+            ### 安装步骤
+            1. 下载下方 APK 文件
+            2. 安装 APK（需允许未知来源）
+            3. 打开 LSPosed 管理器 → 模块列表 → 启用 **Dou++**
+            4. 勾选作用域：**抖音**
+            5. 强制停止抖音或重启手机
+            6. 打开抖音，模块自动生效
+
+            ### 系统要求
+            - Android 9.0+ (API 28)
+            - LSPosed 框架 (1.8+ 或 2.0.x)
+            - 抖音正式版
+
+            ### 功能
+            - 无水印下载视频
+            - 下载音乐 MP3
+            - 下载图集图片
+            - 复制视频文案
+            - 开屏广告跳过
+            - 自动播放下一个视频
+            - 分享面板底部功能入口
+          files: ${{ env.APK_PATH }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

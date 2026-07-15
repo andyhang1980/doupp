@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 设置页使用 AppCompat 主题，兼容旧版 PreferenceActivity 的 PreferenceCategory 标题显示 -->
+    <style name="Theme.Settings" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">#FF1E88E5</item>
+        <item name="colorPrimaryDark">#FF1565C0</item>
+        <item name="colorAccent">#FF03DAC5</item>
+    </style>
+</resources>
