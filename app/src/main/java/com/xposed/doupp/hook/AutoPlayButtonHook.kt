@@ -19,6 +19,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.HookUtils
+import com.xposed.doupp.util.IconRes
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -43,6 +44,9 @@ class AutoPlayButtonHook : BaseHook {
         private const val BTN_TAG = "dou_plus_autoplay_btn"
         private var installed = false
         private val mainHandler = Handler(Looper.getMainLooper())
+
+        /** 自动播放按钮图标（逗音小能手）。占位，待映射确认后修正 */
+        private const val ICON_AUTOPLAY = "dyxs_04" // TODO 待映射
     }
 
     override fun tag() = TAG
@@ -337,7 +341,12 @@ class AutoPlayButtonHook : BaseHook {
     private fun updateState(btn: ImageView) {
         val on = DouSettings.isAutoPlayEnabled()
         btn.background = createCircleBg(btn.context, on)
-        btn.setImageDrawable(TriangleDrawable(if (on) Color.WHITE else 0x99FFFFFF.toInt()))
+        val d = IconRes.getDrawable(btn.context, ICON_AUTOPLAY)
+        if (d != null) {
+            btn.setImageDrawable(d)
+        } else {
+            btn.setImageDrawable(TriangleDrawable(if (on) Color.WHITE else 0x99FFFFFF.toInt()))
+        }
     }
 
     /** 圆形半透明背景（开启时更深，关闭时更淡） */

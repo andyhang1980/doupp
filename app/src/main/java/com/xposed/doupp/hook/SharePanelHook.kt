@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.HookUtils
+import com.xposed.doupp.util.IconRes
 import com.xposed.doupp.util.MediaCache
 import com.xposed.doupp.util.MediaDownloader
 import com.xposed.doupp.util.UrlParser
@@ -43,6 +44,16 @@ class SharePanelHook : BaseHook {
         private const val TAG = "SharePanelHook"
         private const val BUTTON_TAG = "dou_plus_panel"
         private var installed = false
+
+        /**
+         * 图标映射（资源名 -> 功能）。当前为占位，待对照逗音小能手预览页确认后修正。
+         * 对应图标列表见 IconPreviewActivity（桌面「Dou++ 图标预览」）。
+         */
+        private const val ICON_DOWNLOAD_VIDEO = "dyxs_03" // TODO 待映射
+        private const val ICON_DOWNLOAD_MUSIC = "dyxs_16" // TODO 待映射
+        private const val ICON_DOWNLOAD_IMAGE = "dyxs_22" // TODO 待映射
+        private const val ICON_COPY_TEXT     = "dyxs_06" // TODO 待映射
+        private const val ICON_SETTINGS      = "dyxs_10" // TODO 待映射
 
         /** 抖音分享面板相关类名特征 */
         private val SHARE_PANEL_CLASS_KEYWORDS = arrayOf(
@@ -343,18 +354,18 @@ class SharePanelHook : BaseHook {
             setPadding(0, (6 * density).toInt(), 0, (2 * density).toInt())
         }
 
-        // 按钮配置: (背景色, 图标Unicode, 图标颜色, 文字标签, 点击动作)
+        // 按钮配置: (背景色, 图标资源名, 图标颜色(兜底文字用), 文字标签, 点击动作)
         // 复制文案受 copy_text 开关控制，关闭时不注入该按钮
         val copyConfig = if (DouSettings.isCopyTextEnabled()) {
-            arrayOf(Color.parseColor("#FFA502"), "\u2398", Color.WHITE, "复制文案", Runnable { copyText(context) })
+            arrayOf(Color.parseColor("#FFA502"), ICON_COPY_TEXT, Color.WHITE, "复制文案", Runnable { copyText(context) })
         } else null
 
         val buttonConfigs = listOfNotNull(
-            arrayOf(Color.parseColor("#FF4757"), "\u2B07", Color.WHITE, "下载视频", Runnable { downloadVideo(context) }),
-            arrayOf(Color.parseColor("#2ED573"), "\u266A", Color.WHITE, "下载音乐", Runnable { downloadMusic(context) }),
-            arrayOf(Color.parseColor("#1E90FF"), "\u2639", Color.WHITE, "下载图片", Runnable { downloadImages(context) }),
+            arrayOf(Color.parseColor("#FF4757"), ICON_DOWNLOAD_VIDEO, Color.WHITE, "下载视频", Runnable { downloadVideo(context) }),
+            arrayOf(Color.parseColor("#2ED573"), ICON_DOWNLOAD_MUSIC, Color.WHITE, "下载音乐", Runnable { downloadMusic(context) }),
+            arrayOf(Color.parseColor("#1E90FF"), ICON_DOWNLOAD_IMAGE, Color.WHITE, "下载图片", Runnable { downloadImages(context) }),
             copyConfig,
-            arrayOf(Color.parseColor("#747D8C"), "\u2699", Color.WHITE, "模块设置", Runnable { openSettings(context) })
+            arrayOf(Color.parseColor("#747D8C"), ICON_SETTINGS, Color.WHITE, "模块设置", Runnable { openSettings(context) })
         )
 
         for (config in buttonConfigs) {
@@ -375,13 +386,12 @@ class SharePanelHook : BaseHook {
 
     /**
      * 创建单个图标+文字按钮
-     * 美观设计: 圆形彩色背景 + Unicode图标 + 文字标签
+     * 美观设计: 圆形彩色背景 + 逗音小能手图标(drawable) + 文字标签
      */
-    private fun createIconButton(context: Context, bgColor: Int, iconText: String, iconColor: Int, label: String): LinearLayout {
+    private fun createIconButton(context: Context, bgColor: Int, iconName: String, iconColor: Int, label: String): LinearLayout {
         val density = context.resources.displayMetrics.density
         val btnSize = (40 * density).toInt()  // 按钮直径
-        val iconSize = (20 * density).toInt()  // 图标大小
-        
+
         return LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -390,36 +400,42 @@ class SharePanelHook : BaseHook {
                 (8 * density).toInt(), (4 * density).toInt()
             )
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            
+
             // 图标容器 - 圆形彩色背景
             val iconContainer = FrameLayout(context).apply {
                 layoutParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
                     gravity = Gravity.CENTER
                 }
-                
+
                 // 圆形背景
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(bgColor)
                 }
-                
-                // Unicode 图标
-                val iconView = TextView(context).apply {
-                    text = iconText
-                    setTextColor(iconColor)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                    gravity = Gravity.CENTER
+
+                // 逗音小能手图标（模块自带 drawable）
+                val iconView = ImageView(context).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    val d = IconRes.getDrawable(context, iconName)
+                    if (d != null) {
+                        setImageDrawable(d)
+                    } else {
+                        // 兜底: 文字首字
+                        setImageDrawable(null)
+                    }
                     layoutParams = FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT
                     ).apply {
                         gravity = Gravity.CENTER
+                        val pad = (8 * density).toInt()
+                        setMargins(pad, pad, pad, pad)
                     }
                 }
                 addView(iconView)
             }
             addView(iconContainer)
-            
+
             // 文字标签
             val labelView = TextView(context).apply {
                 text = label
