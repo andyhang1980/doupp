@@ -345,11 +345,12 @@ object MediaCache {
             && !u.contains("/logo/", ignoreCase = true)
     }
 
-    /** 从 addr 对象收集所有 http URL（urlList / url_list / urls） */
+    /** 从 addr 对象收集所有 http URL（urlList / url_list / urls），字段/getter 双兜底 */
     private fun collectUrlsFromAddr(addr: Any): List<String>? {
         val out = mutableListOf<String>()
         for (listName in URL_LIST_FIELD_NAMES) {
-            val urlList = getFieldDeep(addr, listName) as? List<*>
+            val urlList = objByNames(addr, listOf(listName)) as? List<*>
+                ?: (getFieldDeep(addr, listName) as? List<*>)
             urlList?.filterIsInstance<String>()
                 ?.filter { it.startsWith("http") }
                 ?.let { out.addAll(it) }
@@ -858,19 +859,5 @@ object MediaCache {
             }
         } catch (_: Throwable) {}
         return null
-    }
-
-    /** 从 addr 对象收集所有 http URL（字段名或 getter 均可） */
-    private fun collectUrlsFromAddr(addr: Any): List<String>? {
-        val out = mutableListOf<String>()
-        for (listName in URL_LIST_FIELD_NAMES) {
-            val urlList = objByNames(addr, listName) as? List<*>
-                ?: (getField(addr, listName) as? List<*>)
-            urlList?.filterIsInstance<String>()
-                ?.filter { it.startsWith("http") }
-                ?.let { out.addAll(it) }
-        }
-        if (addr is String && addr.startsWith("http")) out.add(addr)
-        return if (out.isEmpty()) null else out
     }
 }

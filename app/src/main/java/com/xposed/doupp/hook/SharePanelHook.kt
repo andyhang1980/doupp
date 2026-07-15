@@ -416,12 +416,10 @@ class SharePanelHook : BaseHook {
                 }
 
                 // 逗音小能手图标（模块自带 drawable）
+                val drawable = IconRes.getDrawable(context, iconName)
                 val iconView = ImageView(context).apply {
                     scaleType = ImageView.ScaleType.FIT_CENTER
-                    val d = IconRes.getDrawable(context, iconName)
-                    if (d != null) {
-                        setImageDrawable(d)
-                    }
+                    if (drawable != null) setImageDrawable(drawable)
                     layoutParams = FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT
@@ -433,8 +431,8 @@ class SharePanelHook : BaseHook {
                 }
                 addView(iconView)
                 // 兜底：图标缺失时显示文字首字，保证按钮始终可识别
-                if (IconRes.getDrawable(context, iconName) == null) {
-                    iconContainer.addView(TextView(context).apply {
+                if (drawable == null) {
+                    addView(TextView(context).apply {
                         text = label.take(1)
                         setTextColor(Color.WHITE)
                         textSize = 16f
