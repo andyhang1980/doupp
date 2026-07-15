@@ -250,8 +250,10 @@ class VideoFilterHook : BaseHook {
     private fun isImageContent(aweme: Any): Boolean {
         return try {
             val imageUrls = MediaCache.getImageUrlsFromAweme(aweme)
-            val videoDur = MediaCache.getVideoDurationSec()
-            imageUrls.isNotEmpty() && (videoDur == null || videoDur < 1.0)
+            if (imageUrls.isEmpty()) return false
+            // 必须是“没有视频”的内容才视为图集，避免把普通视频误判
+            val videoUrl = MediaCache.getVideoUrlFromAweme(aweme)
+            videoUrl == null
         } catch (_: Throwable) {
             false
         }
@@ -260,12 +262,16 @@ class VideoFilterHook : BaseHook {
     private fun isAdContent(aweme: Any): Boolean {
         return try {
             val cls = aweme.javaClass
-            for (f in listOf("isAd", "is_ad", "ad", "isPromotion", "promotion")) {
+            // 仅依据抖音自身的广告标志位判断（字段/方法），
+            // 不再用文案关键词（"购物/商品/广告" 在普通视频里太常见，会误杀正常视频）。
+            for (f in listOf("isAd", "is_ad", "ad", "isPromotion", "promotion", "awemeType", "aweme_type")) {
                 try {
                     val field = cls.getDeclaredField(f)
                     field.isAccessible = true
                     val v = field.get(aweme)
                     if (v is Boolean && v) return true
+                    // awemeType == 1 通常代表广告
+                    if (v is Number && (f == "awemeType" || f == "aweme_type") && v.toInt() == 1) return true
                 } catch (_: Throwable) {}
             }
             for (name in listOf("isAd", "is_ad", "isAdvert", "isPromotion")) {
@@ -276,9 +282,7 @@ class VideoFilterHook : BaseHook {
                     if (r is Boolean && r) return true
                 } catch (_: Throwable) {}
             }
-            val desc = MediaCache.getAwemeDesc(aweme)?.lowercase() ?: ""
-            val adKeywords = listOf("广告", "推广", "购物", "商品")
-            adKeywords.any { desc.contains(it) }
+            false
         } catch (_: Throwable) {
             false
         }

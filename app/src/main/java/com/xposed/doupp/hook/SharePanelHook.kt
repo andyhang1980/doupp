@@ -2,7 +2,11 @@ package com.xposed.doupp.hook
 
 import android.app.Dialog
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -54,8 +58,8 @@ class SharePanelHook : BaseHook {
         private const val ICON_DOWNLOAD_VIDEO = "dyxs_03"
         private const val ICON_DOWNLOAD_MUSIC = "dyxs_16"
         private const val ICON_DOWNLOAD_IMAGE = "dyxs_22"
-        private const val ICON_COPY_TEXT     = "dyxs_06"
-        private const val ICON_SETTINGS      = "dyxs_10"
+                private const val ICON_COPY_TEXT     = "dyxs_06"
+                private const val ICON_SETTINGS      = "gear" // 用代码绘制的齿轮，避免素材图标观感差
 
         /** 抖音分享面板相关类名特征 */
         private val SHARE_PANEL_CLASS_KEYWORDS = arrayOf(
@@ -415,8 +419,8 @@ class SharePanelHook : BaseHook {
                     setColor(bgColor)
                 }
 
-                // 逗音小能手图标（模块自带 drawable）
-                val drawable = IconRes.getDrawable(context, iconName)
+                // 图标：设置按钮用代码绘制的齿轮；其余用逗音小能手素材
+                val drawable = if (iconName == ICON_SETTINGS) GearDrawable() else IconRes.getDrawable(context, iconName)
                 val iconView = ImageView(context).apply {
                     scaleType = ImageView.ScaleType.FIT_CENTER
                     if (drawable != null) setImageDrawable(drawable)
@@ -725,5 +729,42 @@ class SharePanelHook : BaseHook {
             if (result != null) return result
         }
         return null
+    }
+
+    /**
+     * 代码绘制的齿轮图标（用于「模块设置」按钮），保证清晰美观、不依赖素材。
+     */
+    private class GearDrawable : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        override fun draw(canvas: Canvas) {
+            val w = bounds.width().toFloat()
+            val h = bounds.height().toFloat()
+            val cx = w / 2f
+            val cy = h / 2f
+            val rOuter = w * 0.42f
+            val rInner = w * 0.20f
+            val teeth = 8
+            val toothH = w * 0.12f
+            // 齿
+            paint.style = Paint.Style.FILL
+            for (i in 0 until teeth) {
+                val a = Math.toRadians((360.0 / teeth * i) - 90.0).toFloat()
+                val x1 = cx + (rOuter) * kotlin.math.cos(a)
+                val y1 = cy + (rOuter) * kotlin.math.sin(a)
+                val x2 = cx + (rOuter + toothH) * kotlin.math.cos(a)
+                val y2 = cy + (rOuter + toothH) * kotlin.math.sin(a)
+                canvas.drawCircle(x2, y2, w * 0.07f, paint)
+            }
+            // 外环
+            paint.style = Paint.Style.FILL
+            canvas.drawCircle(cx, cy, rOuter, paint)
+            // 内孔（用透明/底色镂空 -> 用圆盖出镂空感，这里直接画一个稍小的深色圆）
+            paint.color = 0x33000000.toInt()
+            canvas.drawCircle(cx, cy, rInner, paint)
+            paint.color = Color.WHITE
+        }
+        override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+        override fun setColorFilter(cf: ColorFilter?) { paint.colorFilter = cf }
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
     }
 }

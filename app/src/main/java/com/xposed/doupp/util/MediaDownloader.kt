@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.xposed.doupp.ui.DouSettings
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -176,10 +177,14 @@ object MediaDownloader {
             else -> contentType
         }
 
+        // 使用用户在设置中配置的保存目录（默认 Dou+），并过滤非法字符
+        val dir = (DouSettings.getSaveDirectory() ?: "Dou+")
+            .replace(Regex("[/\\\\:*?\"<>|]"), "_")
+            .takeIf { it.isNotEmpty() } ?: "Dou+"
         val relativePath = when {
-            isVideo -> Environment.DIRECTORY_MOVIES + "/Dou+"
-            isImage -> Environment.DIRECTORY_PICTURES + "/Dou+"
-            else -> Environment.DIRECTORY_DOWNLOADS + "/Dou+"
+            isVideo -> Environment.DIRECTORY_MOVIES + "/$dir"
+            isImage -> Environment.DIRECTORY_PICTURES + "/$dir"
+            else -> Environment.DIRECTORY_DOWNLOADS + "/$dir"
         }
 
         val values = ContentValues().apply {

@@ -19,7 +19,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.HookUtils
-import com.xposed.doupp.util.IconRes
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -44,9 +43,6 @@ class AutoPlayButtonHook : BaseHook {
         private const val BTN_TAG = "dou_plus_autoplay_btn"
         private var installed = false
         private val mainHandler = Handler(Looper.getMainLooper())
-
-        /** 自动播放按钮图标（逗音小能手），按合理顺序分配，下方有文字标签可辨识 */
-        private const val ICON_AUTOPLAY = "dyxs_04"
     }
 
     override fun tag() = TAG
@@ -104,28 +100,28 @@ class AutoPlayButtonHook : BaseHook {
             val btn = createAutoPlayButton(activity)
             btn.tag = BTN_TAG
 
+            // 头像检测失败时，回退到右侧竖向图标列的首个子 View（即头像）作为定位锚点
+            val anchor = avatar ?: findRightColumnFirstChild(decor)
+            if (anchor == null) {
+                HookUtils.log("$TAG: 未定位到头像，按钮不注入（避免悬空）")
+                return@post
+            }
+
             val lp = FrameLayout.LayoutParams(btnSize, btnSize).apply {
                 gravity = Gravity.TOP or Gravity.END
-                if (avatar != null) {
-                    // 居中悬于头像正上方
-                    val cLoc = IntArray(2)
-                    content.getLocationInWindow(cLoc)
-                    val aLoc = IntArray(2)
-                    avatar.getLocationInWindow(aLoc)
-                    val axRel = aLoc[0] - cLoc[0]
-                    val ayRel = aLoc[1] - cLoc[1]
-                    val avatarW = avatar.width
-                    val screenW = if (content.width > 0) content.width else decor.width
-                    val gap = (6 * density).toInt()
-                    topMargin = maxOf(0, ayRel - btnSize - gap)
-                    marginEnd = maxOf(0, screenW - (axRel + avatarW / 2) - btnSize / 2)
-                    HookUtils.log("$TAG: 定位到头像正上方，按钮尺寸=$btnSize")
-                } else {
-                    // 兜底: 右上角默认位置
-                    topMargin = (84 * density).toInt()
-                    marginEnd = (14 * density).toInt()
-                    HookUtils.log("$TAG: 未定位到头像，按钮置于右上角默认位置")
-                }
+                // 居中悬于头像正上方，留小间隙
+                val cLoc = IntArray(2)
+                content.getLocationInWindow(cLoc)
+                val aLoc = IntArray(2)
+                anchor.getLocationInWindow(aLoc)
+                val axRel = aLoc[0] - cLoc[0]
+                val ayRel = aLoc[1] - cLoc[1]
+                val anchorW = anchor.width
+                val screenW = if (content.width > 0) content.width else decor.width
+                val gap = (6 * density).toInt()
+                topMargin = maxOf(0, ayRel - btnSize - gap)
+                marginEnd = maxOf(0, screenW - (axRel + anchorW / 2) - btnSize / 2)
+                HookUtils.log("$TAG: 定位到头像正上方 (anchorTop=$ayRel, btnSize=$btnSize)")
             }
             content.addView(btn, lp)
             HookUtils.log("$TAG: 已注入自动播放按钮 (container=content)")
@@ -319,6 +315,24 @@ class AutoPlayButtonHook : BaseHook {
         }
     }
 
+    /**
+     * 头像检测失败时的兜底：找到右侧竖向图标列（点赞/评论/收藏/分享所在的列），
+     * 返回其首个子 View（即作者头像）作为定位锚点。
+     */
+    private fun findRightColumnFirstChild(root: View): View? {
+        try {
+            val width = root.width
+            val cols = mutableListOf<ViewGroup>()
+            collectVerticalIconColumns(root, width, cols, 0)
+            if (cols.isNotEmpty()) {
+                cols.sortWith(compareBy({ -it.childCount }, { it.x.toInt() }))
+                val col = cols.first()
+                return col.getChildAt(0)
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
     private fun createAutoPlayButton(context: Context): ImageView {
         val density = context.resources.displayMetrics.density
         return ImageView(context).apply {
@@ -341,12 +355,8 @@ class AutoPlayButtonHook : BaseHook {
     private fun updateState(btn: ImageView) {
         val on = DouSettings.isAutoPlayEnabled()
         btn.background = createCircleBg(btn.context, on)
-        val d = IconRes.getDrawable(btn.context, ICON_AUTOPLAY)
-        if (d != null) {
-            btn.setImageDrawable(d)
-        } else {
-            btn.setImageDrawable(TriangleDrawable(if (on) Color.WHITE else 0x99FFFFFF.toInt()))
-        }
+        // 圆形 + 三角播放符号（开启为白色，关闭为半透明白）
+        btn.setImageDrawable(TriangleDrawable(if (on) Color.WHITE else 0x99FFFFFF.toInt()))
     }
 
     /** 圆形半透明背景（开启时更深，关闭时更淡） */

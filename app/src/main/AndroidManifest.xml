@@ -17,12 +17,16 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.MaterialComponents.DayNight.DarkActionBar">
 
-        <!-- 设置页面 -->
+        <!-- 设置页面（模块主入口） -->
         <activity
             android:name=".ui.SettingsActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Settings">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="com.xposed.doupp.SETTINGS" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -41,16 +45,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- 图标预览页（开发期映射逗音小能手图标用，可删） -->
+        <!-- 图标预览页（开发期映射用，非入口） -->
         <activity
             android:name=".ui.IconPreviewActivity"
             android:exported="true"
-            android:label="Dou++ 图标预览">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:label="Dou++ 图标预览" />
 
         <!-- LSPosed 模块声明 -->
         <!-- xposedminversion: 要求 LSPosed 93+ (兼容 LSPosed 2.0.x) -->

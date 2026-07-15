@@ -847,7 +847,9 @@ object MediaCache {
                 for (m in clazz.declaredMethods) {
                     if (m.parameterCount != 0 || m.returnType == Void.TYPE || m.name.contains("$")) continue
                     val ml = m.name.lowercase()
-                    val hit = lowerNames.any { ln -> ml == ln || ml == "get$ln" || ml.endsWith(ln) }
+                    // 仅精确匹配方法名或 getXxx，禁止使用 endsWith，
+                    // 否则 isVideo() 会被误当成 video getter 而返回 Boolean
+                    val hit = lowerNames.any { ln -> ml == ln || ml == "get$ln" }
                     if (!hit) continue
                     try {
                         m.isAccessible = true
