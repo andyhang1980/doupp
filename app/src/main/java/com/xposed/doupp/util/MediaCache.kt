@@ -507,28 +507,28 @@ object MediaCache {
     fun getMusicUrlFromAweme(aweme: Any): String? {
         try {
             // 查找 Music 对象
-            var music: Any? = null
-            music = objByNames(aweme, MUSIC_FIELD_NAMES) ?: run {
+            var music: Any? = objByNames(aweme, MUSIC_FIELD_NAMES)
+            if (music == null) {
                 for (fieldName in MUSIC_FIELD_NAMES) {
                     val m = getField(aweme, fieldName)
                     if (m != null) { music = m; break }
                 }
-                music
             }
-            if (music == null) {
+            val musicObj = music
+            if (musicObj == null) {
                 HookUtils.log("MediaCache: 未找到 music 字段")
                 return null
             }
 
             // 尝试各种 URL 字段
             for (urlFieldName in MUSIC_URL_FIELD_NAMES) {
-                val urlObj = objByNames(music, listOf(urlFieldName)) ?: (getField(music, urlFieldName)) ?: continue
+                val urlObj = objByNames(musicObj, listOf(urlFieldName)) ?: (getField(musicObj, urlFieldName)) ?: continue
                 val url = extractUrlFromObject(urlObj)
                 if (url != null) return url
             }
 
             // 备用: 递归查找音频 URL
-            val url = findAudioUrlInObject(music, depth = 0)
+            val url = findAudioUrlInObject(musicObj, depth = 0)
             if (url != null) return url
         } catch (t: Throwable) {
             HookUtils.log("MediaCache: getMusicUrl 失败: ${t.message}")
