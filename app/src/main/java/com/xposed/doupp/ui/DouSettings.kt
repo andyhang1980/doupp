@@ -53,14 +53,6 @@ object DouSettings {
     const val KEY_FILTER_KEYWORDS = "filter_keywords"
     const val KEY_LONG_VIDEO_SECONDS = "long_video_seconds"
     const val KEY_DOUBLE_CLICK_ACTION = "double_click_action"
-    const val KEY_CLEAN_MODE = "clean_mode"
-    const val KEY_HIDE_GUIDE = "hide_guide"
-    const val KEY_HIDE_COMMENT_ENTRY = "hide_comment_entry"
-    const val KEY_HIDE_SHARE_ENTRY = "hide_share_entry"
-    const val KEY_HIDE_LIKE_BUTTON = "hide_like_button"
-    const val KEY_HIDE_BOTTOM_TAB = "hide_bottom_tab"
-    const val KEY_HIDE_TOP_BAR = "hide_top_bar"
-    const val KEY_HIDE_MUSIC_DISC = "hide_music_disc"
 
     // ==================== 默认值 ====================
     private const val DEFAULT_DOWNLOAD_VIDEO = true
@@ -91,14 +83,6 @@ object DouSettings {
     private const val DEFAULT_FILTER_LONG_VIDEO = false
     private const val DEFAULT_LONG_VIDEO_SECONDS = 300
     private const val DEFAULT_DOUBLE_CLICK_ACTION = "like"
-    private const val DEFAULT_CLEAN_MODE = false
-    private const val DEFAULT_HIDE_GUIDE = false
-    private const val DEFAULT_HIDE_COMMENT_ENTRY = false
-    private const val DEFAULT_HIDE_SHARE_ENTRY = false
-    private const val DEFAULT_HIDE_LIKE_BUTTON = false
-    private const val DEFAULT_HIDE_BOTTOM_TAB = false
-    private const val DEFAULT_HIDE_TOP_BAR = false
-    private const val DEFAULT_HIDE_MUSIC_DISC = false
 
     @Volatile
     private var prefs: SharedPreferences? = null
@@ -849,54 +833,5 @@ object DouSettings {
     fun setDoubleClickAction(action: String) =
         putString(KEY_DOUBLE_CLICK_ACTION, action)
 
-    // ==================== 清爽模式 ====================
-
-    fun isCleanModeEnabled(): Boolean =
-        getPrefs().getBoolean(KEY_CLEAN_MODE, DEFAULT_CLEAN_MODE)
-
-    fun isHideGuide(): Boolean =
-        isCleanModeEnabled() && getPrefs().getBoolean(KEY_HIDE_GUIDE, DEFAULT_HIDE_GUIDE)
-
-    fun isHideCommentEntry(): Boolean =
-        isCleanModeEnabled() && getPrefs().getBoolean(KEY_HIDE_COMMENT_ENTRY, DEFAULT_HIDE_COMMENT_ENTRY)
-
-    fun isHideShareEntry(): Boolean =
-        isCleanModeEnabled() && getPrefs().getBoolean(KEY_HIDE_SHARE_ENTRY, DEFAULT_HIDE_SHARE_ENTRY)
-
-    fun isHideLikeButton(): Boolean =
-        isCleanModeEnabled() && getPrefs().getBoolean(KEY_HIDE_LIKE_BUTTON, DEFAULT_HIDE_LIKE_BUTTON)
-
-    fun isHideBottomTab(): Boolean =
-        isCleanModeEnabled() && getPrefs().getBoolean(KEY_HIDE_BOTTOM_TAB, DEFAULT_HIDE_BOTTOM_TAB)
-
-    fun isHideTopBar(): Boolean =
-        isCleanModeEnabled() && getPrefs().getBoolean(KEY_HIDE_TOP_BAR, DEFAULT_HIDE_TOP_BAR)
-
-    fun isHideMusicDisc(): Boolean =
-        isCleanModeEnabled() && getPrefs().getBoolean(KEY_HIDE_MUSIC_DISC, DEFAULT_HIDE_MUSIC_DISC)
-
-    fun setCleanModeEnabled(enabled: Boolean) =
-        putBoolean(KEY_CLEAN_MODE, enabled)
-
-    fun setHideGuide(enabled: Boolean) =
-        putBoolean(KEY_HIDE_GUIDE, enabled)
-
-    fun setHideCommentEntry(enabled: Boolean) =
-        putBoolean(KEY_HIDE_COMMENT_ENTRY, enabled)
-
-    fun setHideShareEntry(enabled: Boolean) =
-        putBoolean(KEY_HIDE_SHARE_ENTRY, enabled)
-
-    fun setHideLikeButton(enabled: Boolean) =
-        putBoolean(KEY_HIDE_LIKE_BUTTON, enabled)
-
-    fun setHideBottomTab(enabled: Boolean) =
-        putBoolean(KEY_HIDE_BOTTOM_TAB, enabled)
-
-    fun setHideTopBar(enabled: Boolean) =
-        putBoolean(KEY_HIDE_TOP_BAR, enabled)
-
-    fun setHideMusicDisc(enabled: Boolean) =
-        putBoolean(KEY_HIDE_MUSIC_DISC, enabled)
 }
 

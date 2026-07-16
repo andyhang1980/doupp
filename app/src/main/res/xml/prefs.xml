@@ -191,59 +191,6 @@
 
     </PreferenceCategory>
 
-    <!-- ==================== 清爽模式 ==================== -->
-    <PreferenceCategory android:title="@string/category_clean_mode">
-
-        <CheckBoxPreference
-            android:key="clean_mode"
-            android:title="@string/pref_clean_mode_title"
-            android:summary="@string/pref_clean_mode_summary"
-            android:defaultValue="false" />
-
-        <CheckBoxPreference
-            android:key="hide_guide"
-            android:title="@string/pref_hide_guide_title"
-            android:summary="@string/pref_hide_guide_summary"
-            android:defaultValue="false" />
-
-        <CheckBoxPreference
-            android:key="hide_comment_entry"
-            android:title="@string/pref_hide_comment_entry_title"
-            android:summary="@string/pref_hide_comment_entry_summary"
-            android:defaultValue="false" />
-
-        <CheckBoxPreference
-            android:key="hide_share_entry"
-            android:title="@string/pref_hide_share_entry_title"
-            android:summary="@string/pref_hide_share_entry_summary"
-            android:defaultValue="false" />
-
-        <CheckBoxPreference
-            android:key="hide_like_button"
-            android:title="@string/pref_hide_like_button_title"
-            android:summary="@string/pref_hide_like_button_summary"
-            android:defaultValue="false" />
-
-        <CheckBoxPreference
-            android:key="hide_bottom_tab"
-            android:title="@string/pref_hide_bottom_tab_title"
-            android:summary="@string/pref_hide_bottom_tab_summary"
-            android:defaultValue="false" />
-
-        <CheckBoxPreference
-            android:key="hide_top_bar"
-            android:title="@string/pref_hide_top_bar_title"
-            android:summary="@string/pref_hide_top_bar_summary"
-            android:defaultValue="false" />
-
-        <CheckBoxPreference
-            android:key="hide_music_disc"
-            android:title="@string/pref_hide_music_disc_title"
-            android:summary="@string/pref_hide_music_disc_summary"
-            android:defaultValue="false" />
-
-    </PreferenceCategory>
-
     <!-- ==================== 双击行为 ==================== -->
     <PreferenceCategory android:title="@string/category_double_click">
 

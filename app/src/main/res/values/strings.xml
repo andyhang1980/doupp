@@ -104,25 +104,6 @@
     <string name="pref_filter_keywords_title">自定义过滤关键词</string>
     <string name="pref_filter_keywords_summary">逗号或换行分隔，匹配到的内容将被自动跳过</string>
 
-    <!-- 清爽模式 -->
-    <string name="category_clean_mode">清爽模式</string>
-    <string name="pref_clean_mode_title">清爽模式（总开关）</string>
-    <string name="pref_clean_mode_summary">隐藏界面元素，专注内容观看</string>
-    <string name="pref_hide_guide_title">隐藏引导提示</string>
-    <string name="pref_hide_guide_summary">隐藏视频上的滑动引导、点赞提示等</string>
-    <string name="pref_hide_comment_entry_title">隐藏评论入口</string>
-    <string name="pref_hide_comment_entry_summary">隐藏右侧评论按钮</string>
-    <string name="pref_hide_share_entry_title">隐藏分享入口</string>
-    <string name="pref_hide_share_entry_summary">隐藏右侧分享按钮</string>
-    <string name="pref_hide_like_button_title">隐藏点赞按钮</string>
-    <string name="pref_hide_like_button_summary">隐藏右侧点赞按钮</string>
-    <string name="pref_hide_bottom_tab_title">隐藏底部导航栏</string>
-    <string name="pref_hide_bottom_tab_summary">隐藏首页底部的 Tab 栏</string>
-    <string name="pref_hide_top_bar_title">隐藏顶部导航栏</string>
-    <string name="pref_hide_top_bar_summary">隐藏首页顶部的关注/推荐 Tab</string>
-    <string name="pref_hide_music_disc_title">隐藏音乐唱片</string>
-    <string name="pref_hide_music_disc_summary">隐藏右下角旋转的音乐唱片</string>
-
     <!-- 双击行为 -->
     <string name="category_double_click">双击行为</string>
     <string name="pref_double_click_title">双击屏幕行为</string>

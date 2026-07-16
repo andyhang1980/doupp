@@ -4,7 +4,6 @@ import com.xposed.doupp.hook.AdHook
 import com.xposed.doupp.hook.AutoPlayButtonHook
 import com.xposed.doupp.hook.AutoPlayControllerHook
 import com.xposed.doupp.hook.CommentHook
-import com.xposed.doupp.hook.CleanModeHook
 import com.xposed.doupp.hook.DoubleClickHook
 import com.xposed.doupp.hook.DownloadDialogHook
 import com.xposed.doupp.hook.DownloadHook
@@ -151,8 +150,7 @@ class MainHook : IXposedHookLoadPackage {
             AutoPlayControllerHook(), // 官方 AutoPlayController 自动连播（39.6 已逆向确认）
             AutoPlayButtonHook(),     // 播放页自动连播开关按钮
             VideoFilterHook(),        // 视频过滤（直播/图文/长视频/关键词），跳过用合成滑动
-            CleanModeHook(),          // 清爽模式（隐藏界面元素）
-            // DoubleClickHook(),      // 双击屏幕自定义行为（暂未启用）
+            DoubleClickHook(),      // 双击屏幕自定义行为（评论/分享/点赞/无操作）
         )
     }
 

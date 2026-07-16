@@ -88,43 +88,30 @@ class AutoPlayButtonHook : BaseHook {
             if (content.findViewWithTag<View>(BTN_TAG) != null) return@post
 
             val density = activity.resources.displayMetrics.density
-            val avatar = findAvatar(decor)
-            // 按钮尺寸与头像差不多（36~72dp 区间内直接用头像尺寸，否则默认 48dp）
-            val btnSize = if (avatar != null && avatar.width > 0) {
-                val w = avatar.width
-                if (w in (36 * density).toInt()..(72 * density).toInt()) w else (48 * density).toInt()
-            } else {
-                (48 * density).toInt()
-            }
+            val btnSize = (48 * density).toInt()
 
             val btn = createAutoPlayButton(activity)
             btn.tag = BTN_TAG
 
-            // 头像检测失败时，回退到右侧竖向图标列的首个子 View（即头像）作为定位锚点
-            val anchor = avatar ?: findRightColumnFirstChild(decor)
-            if (anchor == null) {
-                HookUtils.log("$TAG: 未定位到头像，按钮不注入（避免悬空）")
-                return@post
-            }
+            // 抖音右侧按钮列（头像/点赞/评论等）渲染在独立 Window，不在 Activity decorView 树中，
+            // 无法通过 findAvatar 定位。改用屏幕比例固定定位：头像在屏幕右侧 92%、高度 44% 处。
+            val headCenterX = 0.92
+            val headTopY = 0.44
+            val screenW = if (content.width > 0) content.width else decor.width
+            val screenH = if (content.height > 0) content.height else decor.height
+            val gap = (6 * density).toInt()
+            // 按钮置于头像正上方偏右
+            val btnX = (screenW * headCenterX - btnSize / 2).toInt()
+            val btnY = (screenH * headTopY - btnSize - gap).toInt()
 
             val lp = FrameLayout.LayoutParams(btnSize, btnSize).apply {
                 gravity = Gravity.TOP or Gravity.END
-                // 居中悬于头像正上方，留小间隙
-                val cLoc = IntArray(2)
-                content.getLocationInWindow(cLoc)
-                val aLoc = IntArray(2)
-                anchor.getLocationInWindow(aLoc)
-                val axRel = aLoc[0] - cLoc[0]
-                val ayRel = aLoc[1] - cLoc[1]
-                val anchorW = anchor.width
-                val screenW = if (content.width > 0) content.width else decor.width
-                val gap = (6 * density).toInt()
-                topMargin = maxOf(0, ayRel - btnSize - gap)
-                marginEnd = maxOf(0, screenW - (axRel + anchorW / 2) - btnSize / 2)
-                HookUtils.log("$TAG: 定位到头像正上方 (anchorTop=$ayRel, btnSize=$btnSize)")
+                topMargin = maxOf(0, btnY)
+                marginEnd = maxOf(0, screenW - btnX - btnSize)
+                HookUtils.log("$TAG: 固定比例定位 (x=$btnX, y=$btnY, screenW=$screenW, screenH=$screenH)")
             }
             content.addView(btn, lp)
-            HookUtils.log("$TAG: 已注入自动播放按钮 (container=content)")
+            HookUtils.log("$TAG: 已注入自动播放按钮 (content)")
             } catch (t: Throwable) {
                 HookUtils.log("$TAG: tryInject 失败: ${t.message}")
             }

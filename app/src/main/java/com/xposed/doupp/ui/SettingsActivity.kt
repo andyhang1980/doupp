@@ -134,32 +134,6 @@ class SettingsActivity : PreferenceActivity() {
                 DouSettings.setFilterKeywords(newValue as String); true
             }
 
-            // 清爽模式
-            findPreference("clean_mode")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setCleanModeEnabled(newValue as Boolean); true
-            }
-            findPreference("hide_guide")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setHideGuide(newValue as Boolean); true
-            }
-            findPreference("hide_comment_entry")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setHideCommentEntry(newValue as Boolean); true
-            }
-            findPreference("hide_share_entry")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setHideShareEntry(newValue as Boolean); true
-            }
-            findPreference("hide_like_button")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setHideLikeButton(newValue as Boolean); true
-            }
-            findPreference("hide_bottom_tab")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setHideBottomTab(newValue as Boolean); true
-            }
-            findPreference("hide_top_bar")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setHideTopBar(newValue as Boolean); true
-            }
-            findPreference("hide_music_disc")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setHideMusicDisc(newValue as Boolean); true
-            }
-
             // 双击行为
             findPreference("double_click_action")?.setOnPreferenceChangeListener { _, newValue ->
                 DouSettings.setDoubleClickAction(newValue as String); true
