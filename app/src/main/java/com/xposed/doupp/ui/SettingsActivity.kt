@@ -41,6 +41,33 @@ class SettingsActivity : PreferenceActivity() {
 
             // 绑定偏好变更监听
             bindPreferenceListeners()
+
+            // 初始化总开关→子开关的可用性
+            val _sp = preferenceManager.sharedPreferences
+            updateAdChildrenEnabled(_sp?.getBoolean("remove_ad", true) ?: true)
+            updateFilterChildrenEnabled(_sp?.getBoolean("video_filter", false) ?: false)
+        }
+
+        private val filterChildKeys = arrayOf(
+            "filter_live", "filter_image", "filter_ad", "filter_long_video",
+            "long_video_seconds", "filter_keywords"
+        )
+
+        private fun updateFilterChildrenEnabled(enabled: Boolean) {
+            for (key in filterChildKeys) {
+                findPreference(key)?.isEnabled = enabled
+            }
+        }
+
+        private val adChildKeys = arrayOf(
+            "skip_splash_ad", "block_feed_keywords", "block_shopping",
+            "hide_ad_labels", "block_ad_sdk", "ad_keywords", "block_hot_update"
+        )
+
+        private fun updateAdChildrenEnabled(enabled: Boolean) {
+            for (key in adChildKeys) {
+                findPreference(key)?.isEnabled = enabled
+            }
         }
 
         private fun bindPreferenceListeners() {
@@ -60,7 +87,10 @@ class SettingsActivity : PreferenceActivity() {
 
             // 增强功能
             findPreference("remove_ad")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setRemoveAd(newValue as Boolean); true
+                val on = newValue as Boolean
+                DouSettings.setRemoveAd(on)
+                updateAdChildrenEnabled(on)
+                true
             }
             findPreference("skip_splash_ad")?.setOnPreferenceChangeListener { _, newValue ->
                 DouSettings.setSkipSplashAd(newValue as Boolean); true
@@ -83,10 +113,6 @@ class SettingsActivity : PreferenceActivity() {
             findPreference("block_hot_update")?.setOnPreferenceChangeListener { _, newValue ->
                 DouSettings.setBlockHotUpdate(newValue as Boolean); true
             }
-            findPreference("auto_play")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setAutoPlay(newValue as Boolean); true
-            }
-
             // 自动保存
             findPreference("auto_save_video")?.setOnPreferenceChangeListener { _, newValue ->
                 DouSettings.setAutoSaveVideo(newValue as Boolean); true
@@ -113,7 +139,10 @@ class SettingsActivity : PreferenceActivity() {
 
             // 视频过滤
             findPreference("video_filter")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setVideoFilterEnabled(newValue as Boolean); true
+                val on = newValue as Boolean
+                DouSettings.setVideoFilterEnabled(on)
+                updateFilterChildrenEnabled(on)
+                true
             }
             findPreference("filter_live")?.setOnPreferenceChangeListener { _, newValue ->
                 DouSettings.setFilterLive(newValue as Boolean); true

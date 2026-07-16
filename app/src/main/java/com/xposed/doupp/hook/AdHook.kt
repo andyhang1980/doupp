@@ -267,10 +267,8 @@ class AdHook : BaseHook {
             if (!text.isNullOrEmpty()) {
                 val lower = text.lowercase()
                 val isShopping = lower.contains("购物车") || lower.contains("小黄车") ||
-                        lower.contains("商品") || lower.contains("购买") ||
                         lower.contains("立即购买") || lower.contains("点击购买") ||
-                        lower.contains("领券") || lower.contains("优惠券") ||
-                        lower.contains("进店") || lower.contains("橱窗")
+                        lower.contains("领券") || lower.contains("优惠券")
                 if (isShopping) {
                     hideCard(view, "购物视频")
                     return
@@ -303,19 +301,14 @@ class AdHook : BaseHook {
     }
 
     /**
-     * 隐藏命中的整个卡片容器。
-     * 向上查找4层父视图，找到卡片级容器并隐藏。
+     * 隐藏命中的卡片容器，但不向上传播太远以免误隐藏正常视频。
+     * 只向上找1层（直接父容器），避免把整个 Feed 卡片都隐藏。
      */
     private fun hideCard(view: View, reason: String) {
-        HookUtils.log("$TAG: 检测到$reason，隐藏卡片")
+        HookUtils.log("$TAG: 检测到$reason，隐藏")
         try {
-            var target: View = view
-            // 向上查找，直到找到足够大的容器（卡片级别）
-            for (i in 0..4) {
-                val parent = target.parent as? View ?: break
-                target = parent
-            }
-            target.visibility = View.GONE
+            val parent = view.parent as? View ?: view
+            parent.visibility = View.GONE
         } catch (_: Throwable) {
             try { view.visibility = View.GONE } catch (_: Throwable) {}
         }

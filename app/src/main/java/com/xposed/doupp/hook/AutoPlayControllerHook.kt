@@ -50,7 +50,9 @@ class AutoPlayControllerHook : BaseHook {
 
         private val hooked = HashSet<String>()
 
-        private fun enabled(): Boolean = DouSettings.isAutoPlayEnabled()
+        // 设置中已移除自动播放开关，强制关闭自动连播
+    // triggerMoveToNext 仍保留供视频过滤（VideoFilterHook）跳过使用
+    private fun enabled(): Boolean = false
 
         /**
          * 走官方机制跳到下一个视频（不模拟触摸）。

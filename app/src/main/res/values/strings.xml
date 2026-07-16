@@ -52,8 +52,6 @@
     <string name="pref_block_hot_update_title">屏蔽热更新</string>
     <string name="pref_block_hot_update_summary">阻止抖音热更新弹窗，避免模块失效</string>
 
-    <string name="pref_auto_play_title">自动播放</string>
-    <string name="pref_auto_play_summary">视频播放完成后自动切换到下一个</string>
 
     <!-- 自动保存 -->
     <string name="pref_auto_save_video_title">自动保存视频</string>

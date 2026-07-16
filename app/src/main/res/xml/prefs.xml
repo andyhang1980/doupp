@@ -81,12 +81,6 @@
             android:summary="@string/pref_block_hot_update_summary"
             android:defaultValue="true" />
 
-        <CheckBoxPreference
-            android:key="auto_play"
-            android:title="@string/pref_auto_play_title"
-            android:summary="@string/pref_auto_play_summary"
-            android:defaultValue="false" />
-
     </PreferenceCategory>
 
     <!-- ==================== 自动保存 ==================== -->
