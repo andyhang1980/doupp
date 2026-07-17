@@ -327,9 +327,9 @@ object DouSettings {
                 HookUtils.log("DouSettings: 文件读取方式失败: ${t.message}")
             }
 
-            // 策略4: 所有策略失败，留空由 getPrefs() 在 Context 就绪后惰性重试 ContentProvider
-            HookUtils.log("DouSettings: 所有策略失败，留待惰性初始化")
-            prefs = null
+            // 策略4: 所有策略失败，兜底 DefaultPrefs 避免每次 getPrefs 都重试 ContentProvider 刷屏
+            HookUtils.log("DouSettings: 所有策略失败，使用默认值")
+            prefs = DefaultPrefs()
         }
     }
 
