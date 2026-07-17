@@ -1,6 +1,7 @@
 package com.xposed.doupp
 
 import com.xposed.doupp.hook.AdHook
+import com.xposed.doupp.hook.AutoPlayButtonHook
 import com.xposed.doupp.hook.AutoPlayControllerHook
 import com.xposed.doupp.hook.CommentHook
 import com.xposed.doupp.hook.DoubleClickHook
@@ -147,6 +148,7 @@ class MainHook : IXposedHookLoadPackage {
             LivePhotoHook(),      // 实况照片 Hook + URL 缓存
             DownloadDialogHook(), // 下载弹窗 Hook
             AutoPlayControllerHook(), // 自动连播（供视频过滤跳过用，设置中已无开关，默认关闭）
+            AutoPlayButtonHook(),     // 播放页自动连播状态指示按钮
             VideoFilterHook(),        // 视频过滤（直播/图文/长视频/关键词），跳过用合成滑动
             DoubleClickHook(),      // 双击屏幕自定义行为（评论/分享/点赞/无操作）
         )
