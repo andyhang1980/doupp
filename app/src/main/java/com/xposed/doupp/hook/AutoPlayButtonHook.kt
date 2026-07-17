@@ -13,6 +13,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -23,19 +24,6 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 
-/**
- * 播放界面自动播放按钮 Hook
- *
- * 在 Feed 播放界面注入一个「自动播放」开关按钮，点击切换自动播放状态
- * （写入 DouSettings，与设置页、AutoPlayControllerHook 共用同一状态）。
- *
- * 实现策略（不依赖具体 ViewPager / 不强制要求找到头像）:
- * 1. Hook android.app.Activity.onResume，进入界面后延迟注入。
- * 2. 通过 Activity 类名（main/home/feed）判断是否在播放页，避免误注入其它页面。
- * 3. 若能在视图树中找到作者头像（contentDescription 含「头像」、或资源名含 avatar、
- *    或右侧竖向图标列首个子 View），则把按钮定位到头像正上方；
- *    找不到头像时也按右上角默认位置注入，保证按钮一定出现。
- */
 class AutoPlayButtonHook : BaseHook {
 
     companion object {
@@ -43,6 +31,8 @@ class AutoPlayButtonHook : BaseHook {
         private const val BTN_TAG = "dou_plus_autoplay_btn"
         private var installed = false
         private val mainHandler = Handler(Looper.getMainLooper())
+        private const val PREFS_POS_X = "auto_play_btn_x"
+        private const val PREFS_POS_Y = "auto_play_btn_y"
     }
 
     override fun tag() = TAG
@@ -56,7 +46,6 @@ class AutoPlayButtonHook : BaseHook {
             XposedBridge.hookAllMethods(activityClass, "onResume", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val activity = param.thisObject as? Activity ?: return
-                    HookUtils.log("$TAG: onResume -> ${activity.javaClass.name}")
                     mainHandler.postDelayed({ tryInject(activity) }, 600)
                 }
             })
@@ -65,7 +54,6 @@ class AutoPlayButtonHook : BaseHook {
         }
     }
 
-    /** 通过 Activity 类名粗略判断是否处于主 Feed 播放页 */
     private fun isFeedActivity(activity: Activity): Boolean {
         val name = activity.javaClass.name.lowercase()
         return name.contains("main") || name.contains("home") || name.contains("feed")
@@ -80,273 +68,158 @@ class AutoPlayButtonHook : BaseHook {
                 if (!isFeedActivity(activity)) {
                     content.findViewWithTag<View>(BTN_TAG)?.let {
                         content.removeView(it)
-                        HookUtils.log("$TAG: 非播放页，移除自动播放按钮")
                     }
                     return@post
                 }
 
-            if (content.findViewWithTag<View>(BTN_TAG) != null) return@post
+                val hide = DouSettings.isAutoPlayHide()
+                val existing = content.findViewWithTag<View>(BTN_TAG)
+                if (hide) {
+                    existing?.let { content.removeView(it) }
+                    return@post
+                }
 
-            val density = activity.resources.displayMetrics.density
-            val btnSize = (48 * density).toInt()
+                if (existing != null) return@post
 
-            val btn = createAutoPlayButton(activity)
-            btn.tag = BTN_TAG
+                val density = activity.resources.displayMetrics.density
+                val btnSize = (48 * density).toInt()
+                val btn = createAutoPlayButton(activity, density)
+                btn.tag = BTN_TAG
 
-            // 抖音右侧按钮列（头像/点赞/评论等）渲染在独立 Window，不在 Activity decorView 树中，
-            // 无法通过 findAvatar 定位。改用屏幕比例固定定位：头像在屏幕右侧 92%、高度 44% 处。
-            val headCenterX = 0.92
-            val headTopY = 0.44
-            val screenW = if (content.width > 0) content.width else decor.width
-            val screenH = if (content.height > 0) content.height else decor.height
-            val gap = (6 * density).toInt()
-            // 按钮置于头像正上方偏右
-            val btnX = (screenW * headCenterX - btnSize / 2).toInt()
-            val btnY = (screenH * headTopY - btnSize - gap).toInt()
+                val screenW = if (content.width > 0) content.width else decor.width
+                val screenH = if (content.height > 0) content.height else decor.height
 
-            val lp = FrameLayout.LayoutParams(btnSize, btnSize).apply {
-                gravity = Gravity.TOP or Gravity.END
-                topMargin = maxOf(0, btnY)
-                marginEnd = maxOf(0, screenW - btnX - btnSize)
-                HookUtils.log("$TAG: 固定比例定位 (x=$btnX, y=$btnY, screenW=$screenW, screenH=$screenH)")
-            }
-            content.addView(btn, lp)
-            HookUtils.log("$TAG: 已注入自动播放按钮 (content)")
+                val lp = FrameLayout.LayoutParams(btnSize, btnSize)
+                if (DouSettings.isAutoPlayFloating()) {
+                    val savedX = getSavedPosX(activity)
+                    val savedY = getSavedPosY(activity)
+                    if (savedX >= 0 && savedY >= 0 && savedX + btnSize <= screenW && savedY + btnSize <= screenH) {
+                        lp.leftMargin = savedX
+                        lp.topMargin = savedY
+                        lp.gravity = Gravity.TOP or Gravity.START
+                    } else {
+                        val defaultX = (screenW * 0.92 - btnSize / 2).toInt()
+                        val defaultY = (screenH * 0.44 - btnSize * 1.5).toInt()
+                        lp.leftMargin = defaultX.coerceIn(0, screenW - btnSize)
+                        lp.topMargin = defaultY.coerceIn(0, screenH - btnSize)
+                        lp.gravity = Gravity.TOP or Gravity.START
+                    }
+                } else {
+                    val headCenterX = 0.92
+                    val headTopY = 0.44
+                    val gap = (6 * density).toInt()
+                    val btnX = (screenW * headCenterX - btnSize / 2).toInt()
+                    val btnY = (screenH * headTopY - btnSize - gap).toInt()
+                    lp.gravity = Gravity.TOP or Gravity.END
+                    lp.topMargin = maxOf(0, btnY)
+                    lp.marginEnd = maxOf(0, screenW - btnX - btnSize)
+                }
+
+                content.addView(btn, lp)
+                HookUtils.log("$TAG: 已注入自动播放按钮 (floating=${DouSettings.isAutoPlayFloating()})")
             } catch (t: Throwable) {
                 HookUtils.log("$TAG: tryInject 失败: ${t.message}")
             }
         }
     }
 
-    /**
-     * 查找作者头像（增强策略）
-     * 
-     * 抖音 39.5 界面特征:
-     * - 头像在屏幕右侧中间偏上位置
-     * - 头像通常是圆形或圆角矩形 ImageView
-     * - 头像周围可能有白色边框/加号按钮
-     * - 头像下方依次是: 点赞、评论、收藏、分享等图标
-     * 
-     * 策略（按优先级）:
-     * 1. 右侧区域找圆形/圆角 ImageView（最可靠）
-     * 2. 资源 entry name 含 "avatar"
-     * 3. contentDescription 含「头像」
-     * 4. 右侧竖向图标列的首个子 View
-     */
-    private fun findAvatar(root: View): View? {
-        if (root !is ViewGroup) return null
-        
-        val width = root.width
-        val density = root.resources.displayMetrics.density
-        val rightThreshold = width * 0.65f // 右侧 35% 区域
-        val screenH = root.height
-        
-        // 策略1: 在右侧区域找圆形/圆角 ImageView，优先最上方的
-        val candidates = mutableListOf<Pair<View, Float>>() // (view, y坐标)
-        collectAvatarCandidates(root, width, screenH, density, rightThreshold, candidates, 0)
-        
-        if (candidates.isNotEmpty()) {
-            // 优先选择右侧区域最上方的圆形 ImageView
-            candidates.sortBy { it.second }
-            val best = candidates.first().first
-            HookUtils.log("$TAG: 策略1找到头像: ${best.javaClass.name} @ (${best.x.toInt()}, ${best.y.toInt()})")
-            return best
-        }
-        
-        // 策略2: 资源名
-        val byRes = findByResourceName(root, "avatar", 0)
-        if (byRes != null) {
-            HookUtils.log("$TAG: 策略2(资源名)找到头像")
-            return byRes
-        }
-        
-        // 策略3: contentDescription
-        val byDesc = findByContentDesc(root, "头像", 0)
-        if (byDesc != null) {
-            HookUtils.log("$TAG: 策略3(描述)找到头像")
-            return byDesc
-        }
-        
-        // 策略4: 右侧竖向图标列
-        val cols = mutableListOf<ViewGroup>()
-        collectVerticalIconColumns(root, width, cols, 0)
-        if (cols.isNotEmpty()) {
-            cols.sortWith(compareBy({ -it.childCount }, { it.x.toInt() }))
-            val col = cols.first()
-            val child = col.getChildAt(0)
-            HookUtils.log("$TAG: 策略4(图标列)找到头像候选")
-            return child
-        }
-        
-        return null
-    }
-    
-    /**
-     * 收集头像候选 View
-     * 条件: 
-     * - 在屏幕右侧 35% 区域内
-     * - 是 ImageView（头像控件）
-     * - 尺寸在 36dp-72dp 之间（典型头像大小）
-     * - 优先圆形/圆角（通过 background 判断）
-     */
-    private fun collectAvatarCandidates(
-        view: View, 
-        screenW: Int, 
-        screenH: Int, 
-        density: Float,
-        rightThreshold: Float,
-        out: MutableList<Pair<View, Float>>,
-        depth: Int
-    ) {
-        if (depth > 20) return
-        
-        // 只考虑右侧区域的 View
-        if (view.x >= rightThreshold) {
-            // 检查是否是 ImageView 或 ImageView 的子类
-            if (view is ImageView) {
-                val w = view.width
-                val h = view.height
-                val minSize = (36 * density).toInt()
-                val maxSize = (72 * density).toInt()
-                
-                // 尺寸符合头像特征
-                if (w in minSize..maxSize && h in minSize..maxSize) {
-                    // 检查是否有圆角背景（圆形头像特征）
-                    val hasRoundBg = hasRoundedBackground(view)
-                    
-                    // 检查是否在屏幕中间偏上区域（头像典型位置）
-                    val y = view.y + view.height / 2f
-                    val isInAvatarZone = y > screenH * 0.25f && y < screenH * 0.65f
-                    
-                    if (hasRoundBg || isInAvatarZone) {
-                        val score = if (hasRoundBg) view.y - 1000 else view.y // 圆形优先
-                        out.add(Pair(view, score))
+    private fun createAutoPlayButton(context: Context, density: Float): ImageView {
+        return object : ImageView(context) {
+            private var lastX = 0f
+            private var lastY = 0f
+            private var isDragging = false
+
+            init {
+                isClickable = true
+                isFocusable = true
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                background = createCircleBg(context, DouSettings.isAutoPlayEnabled())
+                val pad = (12 * density).toInt()
+                setPadding(pad, pad, pad, pad)
+                updateState(this)
+            }
+
+            override fun onTouchEvent(event: MotionEvent): Boolean {
+                if (!DouSettings.isAutoPlayFloating()) return super.onTouchEvent(event)
+
+                val parent = parent as? ViewGroup ?: return super.onTouchEvent(event)
+                val lp = layoutParams as? FrameLayout.LayoutParams ?: return super.onTouchEvent(event)
+
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        lastX = event.rawX
+                        lastY = event.rawY
+                        isDragging = false
+                        parent.requestDisallowInterceptTouchEvent(true)
+                        return true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - lastX
+                        val dy = event.rawY - lastY
+                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) isDragging = true
+                        if (isDragging) {
+                            lp.leftMargin = (lp.leftMargin + dx).toInt().coerceIn(0, parent.width - width)
+                            lp.topMargin = (lp.topMargin + dy).toInt().coerceIn(0, parent.height - height)
+                            layoutParams = lp
+                            lastX = event.rawX
+                            lastY = event.rawY
+                        }
+                        return true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (isDragging) {
+                            savePos(context, lp.leftMargin, lp.topMargin)
+                            parent.requestDisallowInterceptTouchEvent(false)
+                            return true
+                        }
+                        parent.requestDisallowInterceptTouchEvent(false)
+                        performClick()
+                        return true
                     }
                 }
+                return super.onTouchEvent(event)
             }
-        }
-        
-        // 递归遍历子 View
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                collectAvatarCandidates(view.getChildAt(i), screenW, screenH, density, rightThreshold, out, depth + 1)
-            }
-        }
-    }
-    
-    /**
-     * 检查 View 是否有圆角/圆形背景
-     */
-    private fun hasRoundedBackground(view: View): Boolean {
-        return try {
-            val bg = view.background
-            when (bg) {
-                is GradientDrawable -> bg.cornerRadius > 0
-                is android.graphics.drawable.ShapeDrawable -> true
-                else -> {
-                    // 检查背景类名
-                    val bgClass = bg?.javaClass?.name ?: ""
-                    bgClass.contains("Circle") || 
-                    bgClass.contains("Round") ||
-                    bgClass.contains("Oval") ||
-                    bgClass.contains("Corner")
-                }
-            }
-        } catch (_: Throwable) { false }
-    }
-
-    private fun findByResourceName(view: View, kw: String, depth: Int): View? {
-        if (depth > 16) return null
-        try {
-            val id = view.id
-            if (id != View.NO_ID) {
-                val entry = view.resources.getResourceEntryName(id)
-                if (entry != null && entry.lowercase().contains(kw)) return view
-            }
-        } catch (_: Throwable) { }
-        if (view !is ViewGroup) return null
-        for (i in 0 until view.childCount) {
-            val r = findByResourceName(view.getChildAt(i), kw, depth + 1)
-            if (r != null) return r
-        }
-        return null
-    }
-
-    private fun findByContentDesc(view: View, kw: String, depth: Int): View? {
-        if (depth > 16) return null
-        val desc = try { view.contentDescription?.toString() } catch (_: Throwable) { null }
-        if (desc != null && desc.contains(kw)) return view
-        if (view !is ViewGroup) return null
-        for (i in 0 until view.childCount) {
-            val r = findByContentDesc(view.getChildAt(i), kw, depth + 1)
-            if (r != null) return r
-        }
-        return null
-    }
-
-    private fun collectVerticalIconColumns(view: View, width: Int, out: MutableList<ViewGroup>, depth: Int) {
-        if (depth > 16 || view !is ViewGroup) return
-        val isVertical = try {
-            val o = XposedHelpers.callMethod(view, "getOrientation") as? Int
-            o == 1
-        } catch (_: Throwable) { false }
-        if (isVertical && view.x > width * 0.5f) {
-            var iconCount = 0
-            for (i in 0 until view.childCount) {
-                if (view.getChildAt(i) is ImageView) iconCount++
-            }
-            if (iconCount >= 3) out.add(view)
-        }
-        for (i in 0 until view.childCount) {
-            collectVerticalIconColumns(view.getChildAt(i), width, out, depth + 1)
-        }
-    }
-
-    /**
-     * 头像检测失败时的兜底：找到右侧竖向图标列（点赞/评论/收藏/分享所在的列），
-     * 返回其首个子 View（即作者头像）作为定位锚点。
-     */
-    private fun findRightColumnFirstChild(root: View): View? {
-        try {
-            val width = root.width
-            val cols = mutableListOf<ViewGroup>()
-            collectVerticalIconColumns(root, width, cols, 0)
-            if (cols.isNotEmpty()) {
-                cols.sortWith(compareBy({ -it.childCount }, { it.x.toInt() }))
-                val col = cols.first()
-                return col.getChildAt(0)
-            }
-        } catch (_: Throwable) {}
-        return null
-    }
-
-    private fun createAutoPlayButton(context: Context): ImageView {
-        val density = context.resources.displayMetrics.density
-        return ImageView(context).apply {
-            isClickable = true
-            isFocusable = true
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = createCircleBg(context, DouSettings.isAutoPlayEnabled())
-            val pad = (12 * density).toInt()
-            setPadding(pad, pad, pad, pad)
-            setOnClickListener {
+        }.also { btn ->
+            btn.setOnClickListener {
                 DouSettings.setAutoPlay(!DouSettings.isAutoPlayEnabled())
-                updateState(this)
+                updateState(btn)
                 val on = DouSettings.isAutoPlayEnabled()
                 HookUtils.showToast(context, if (on) "自动播放: 开" else "自动播放: 关")
                 HookUtils.log("$TAG: 自动播放切换为 $on")
             }
-        }.also { updateState(it) }
+        }
+    }
+
+    private fun getSavedPosX(context: Context): Int {
+        return try {
+            val prefs = context.getSharedPreferences("auto_play_position", Context.MODE_PRIVATE)
+            prefs.getInt(PREFS_POS_X, -1)
+        } catch (_: Throwable) { -1 }
+    }
+
+    private fun getSavedPosY(context: Context): Int {
+        return try {
+            val prefs = context.getSharedPreferences("auto_play_position", Context.MODE_PRIVATE)
+            prefs.getInt(PREFS_POS_Y, -1)
+        } catch (_: Throwable) { -1 }
+    }
+
+    private fun savePos(context: Context, x: Int, y: Int) {
+        try {
+            context.getSharedPreferences("auto_play_position", Context.MODE_PRIVATE)
+                .edit()
+                .putInt(PREFS_POS_X, x)
+                .putInt(PREFS_POS_Y, y)
+                .apply()
+        } catch (_: Throwable) {}
     }
 
     private fun updateState(btn: ImageView) {
         val on = DouSettings.isAutoPlayEnabled()
         btn.background = createCircleBg(btn.context, on)
-        // 圆形 + 三角播放符号（开启为白色，关闭为半透明白）
         btn.setImageDrawable(TriangleDrawable(if (on) Color.WHITE else 0x99FFFFFF.toInt()))
     }
 
-    /** 圆形半透明背景（开启时更深，关闭时更淡） */
     private fun createCircleBg(context: Context, on: Boolean): GradientDrawable {
         return GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -354,7 +227,6 @@ class AutoPlayButtonHook : BaseHook {
         }
     }
 
-    /** 居中三角播放符号（代码绘制，避免依赖模块资源在非宿主进程加载失败） */
     private class TriangleDrawable(private val color: Int) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
         override fun draw(canvas: Canvas) {

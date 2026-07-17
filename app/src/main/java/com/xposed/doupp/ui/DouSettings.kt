@@ -36,6 +36,8 @@ object DouSettings {
     const val KEY_AD_KEYWORDS = "ad_keywords"
     const val KEY_BLOCK_HOT_UPDATE = "block_hot_update"
     const val KEY_AUTO_PLAY = "auto_play"
+    const val KEY_AUTO_PLAY_FLOATING = "auto_play_floating"
+    const val KEY_AUTO_PLAY_HIDE = "auto_play_hide"
     const val KEY_SAVE_COMMENT_MEDIA = "save_comment_media"
     const val KEY_SAVE_DIRECTORY = "save_directory"
     const val KEY_VIDEO_FILTER = "video_filter"
@@ -69,6 +71,8 @@ object DouSettings {
     private const val DEFAULT_FILTER_LONG_VIDEO = false
     private const val DEFAULT_LONG_VIDEO_SECONDS = 300
     private const val DEFAULT_DOUBLE_CLICK_ACTION = "like"
+    private const val DEFAULT_AUTO_PLAY_FLOATING = true
+    private const val DEFAULT_AUTO_PLAY_HIDE = false
 
     @Volatile
     private var prefs: SharedPreferences? = null
@@ -134,6 +138,8 @@ object DouSettings {
                     putBoolean(KEY_BLOCK_AD_SDK, DEFAULT_BLOCK_AD_SDK)
                     putBoolean(KEY_BLOCK_HOT_UPDATE, DEFAULT_BLOCK_HOT_UPDATE)
                     putBoolean(KEY_AUTO_PLAY, DEFAULT_AUTO_PLAY)
+                    putBoolean(KEY_AUTO_PLAY_FLOATING, DEFAULT_AUTO_PLAY_FLOATING)
+                    putBoolean(KEY_AUTO_PLAY_HIDE, DEFAULT_AUTO_PLAY_HIDE)
                     putBoolean(KEY_SAVE_COMMENT_MEDIA, DEFAULT_SAVE_COMMENT_MEDIA)
                     putString(KEY_SAVE_DIRECTORY, DEFAULT_SAVE_DIRECTORY)
                     putString(KEY_AD_KEYWORDS, "")
@@ -644,6 +650,14 @@ object DouSettings {
     fun isSaveCommentMedia(): Boolean =
         getPrefs().getBoolean(KEY_SAVE_COMMENT_MEDIA, DEFAULT_SAVE_COMMENT_MEDIA)
 
+    // ==================== 自动播放 ====================
+
+    fun isAutoPlayFloating(): Boolean =
+        getPrefs().getBoolean(KEY_AUTO_PLAY_FLOATING, DEFAULT_AUTO_PLAY_FLOATING)
+
+    fun isAutoPlayHide(): Boolean =
+        getPrefs().getBoolean(KEY_AUTO_PLAY_HIDE, DEFAULT_AUTO_PLAY_HIDE)
+
     // ==================== 存储 ====================
 
     fun getSaveDirectory(): String =
@@ -699,6 +713,12 @@ object DouSettings {
         // 同步写入内部 prefs（供设置页 UI 显示）
         try { putBoolean(KEY_AUTO_PLAY, enabled) } catch (_: Throwable) {}
     }
+
+    fun setAutoPlayFloating(enabled: Boolean) =
+        putBoolean(KEY_AUTO_PLAY_FLOATING, enabled)
+
+    fun setAutoPlayHide(enabled: Boolean) =
+        putBoolean(KEY_AUTO_PLAY_HIDE, enabled)
 
     fun setSaveCommentMedia(enabled: Boolean) =
         putBoolean(KEY_SAVE_COMMENT_MEDIA, enabled)

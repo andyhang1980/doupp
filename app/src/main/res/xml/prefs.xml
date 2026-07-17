@@ -167,6 +167,23 @@
 
     </PreferenceCategory>
 
+    <!-- ==================== 自动播放 ==================== -->
+    <PreferenceCategory android:title="@string/category_auto_play">
+
+        <CheckBoxPreference
+            android:key="auto_play_floating"
+            android:title="@string/pref_auto_play_floating_title"
+            android:summary="@string/pref_auto_play_floating_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="auto_play_hide"
+            android:title="@string/pref_auto_play_hide_title"
+            android:summary="@string/pref_auto_play_hide_summary"
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
     <!-- ==================== 关于 ==================== -->
     <PreferenceCategory android:title="@string/category_about">
 

@@ -147,6 +147,14 @@ class SettingsActivity : PreferenceActivity() {
                 DouSettings.setDoubleClickAction(newValue as String); true
             }
 
+            // 自动播放
+            findPreference("auto_play_floating")?.setOnPreferenceChangeListener { _, newValue ->
+                DouSettings.setAutoPlayFloating(newValue as Boolean); true
+            }
+            findPreference("auto_play_hide")?.setOnPreferenceChangeListener { _, newValue ->
+                DouSettings.setAutoPlayHide(newValue as Boolean); true
+            }
+
             // 电报群组
             findPreference("telegram")?.setOnPreferenceClickListener {
                 openTelegram()
