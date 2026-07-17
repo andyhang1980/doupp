@@ -36,15 +36,8 @@ object DouSettings {
     const val KEY_AD_KEYWORDS = "ad_keywords"
     const val KEY_BLOCK_HOT_UPDATE = "block_hot_update"
     const val KEY_AUTO_PLAY = "auto_play"
-    const val KEY_AUTO_SAVE_VIDEO = "auto_save_video"
-    const val KEY_AUTO_SAVE_IMAGES = "auto_save_images"
-    const val KEY_AUTO_SAVE_LIVE_PHOTO = "auto_save_live_photo"
     const val KEY_SAVE_COMMENT_MEDIA = "save_comment_media"
     const val KEY_SAVE_DIRECTORY = "save_directory"
-    const val KEY_DOWNLOAD_QUALITY = "download_quality"
-    const val KEY_SHOW_TOAST = "show_toast"
-    const val KEY_SHOW_NOTIFICATION = "show_notification"
-    const val KEY_KEEP_ALIVE = "keep_alive"
     const val KEY_VIDEO_FILTER = "video_filter"
     const val KEY_FILTER_LIVE = "filter_live"
     const val KEY_FILTER_IMAGE = "filter_image"
@@ -67,15 +60,8 @@ object DouSettings {
     private const val DEFAULT_BLOCK_AD_SDK = true
     private const val DEFAULT_BLOCK_HOT_UPDATE = true
     private const val DEFAULT_AUTO_PLAY = true
-    private const val DEFAULT_AUTO_SAVE_VIDEO = false
-    private const val DEFAULT_AUTO_SAVE_IMAGES = false
-    private const val DEFAULT_AUTO_SAVE_LIVE_PHOTO = true
     private const val DEFAULT_SAVE_COMMENT_MEDIA = true
     private const val DEFAULT_SAVE_DIRECTORY = "Dou+"
-    private const val DEFAULT_DOWNLOAD_QUALITY = "high"
-    private const val DEFAULT_SHOW_TOAST = true
-    private const val DEFAULT_SHOW_NOTIFICATION = true
-    private const val DEFAULT_KEEP_ALIVE = true
     private const val DEFAULT_VIDEO_FILTER = false
     private const val DEFAULT_FILTER_LIVE = true
     private const val DEFAULT_FILTER_IMAGE = false
@@ -148,15 +134,9 @@ object DouSettings {
                     putBoolean(KEY_BLOCK_AD_SDK, DEFAULT_BLOCK_AD_SDK)
                     putBoolean(KEY_BLOCK_HOT_UPDATE, DEFAULT_BLOCK_HOT_UPDATE)
                     putBoolean(KEY_AUTO_PLAY, DEFAULT_AUTO_PLAY)
-                    putBoolean(KEY_AUTO_SAVE_VIDEO, DEFAULT_AUTO_SAVE_VIDEO)
-                    putBoolean(KEY_AUTO_SAVE_IMAGES, DEFAULT_AUTO_SAVE_IMAGES)
-                    putBoolean(KEY_AUTO_SAVE_LIVE_PHOTO, DEFAULT_AUTO_SAVE_LIVE_PHOTO)
                     putBoolean(KEY_SAVE_COMMENT_MEDIA, DEFAULT_SAVE_COMMENT_MEDIA)
                     putString(KEY_SAVE_DIRECTORY, DEFAULT_SAVE_DIRECTORY)
-                    putString(KEY_DOWNLOAD_QUALITY, DEFAULT_DOWNLOAD_QUALITY)
                     putString(KEY_AD_KEYWORDS, "")
-                    putBoolean(KEY_SHOW_TOAST, DEFAULT_SHOW_TOAST)
-                    putBoolean(KEY_SHOW_NOTIFICATION, DEFAULT_SHOW_NOTIFICATION)
                 }.apply()
                 // 文件刚创建，再次把目录与文件设为 world-readable
                 makeWorldAccessible(context)
@@ -659,17 +639,6 @@ object DouSettings {
         return getPrefs().getBoolean(KEY_AUTO_PLAY, DEFAULT_AUTO_PLAY)
     }
 
-    // ==================== 自动保存 ====================
-
-    fun isAutoSaveVideo(): Boolean =
-        getPrefs().getBoolean(KEY_AUTO_SAVE_VIDEO, DEFAULT_AUTO_SAVE_VIDEO)
-
-    fun isAutoSaveImages(): Boolean =
-        getPrefs().getBoolean(KEY_AUTO_SAVE_IMAGES, DEFAULT_AUTO_SAVE_IMAGES)
-
-    fun isAutoSaveLivePhoto(): Boolean =
-        getPrefs().getBoolean(KEY_AUTO_SAVE_LIVE_PHOTO, DEFAULT_AUTO_SAVE_LIVE_PHOTO)
-
     // ==================== 评论区 ====================
 
     fun isSaveCommentMedia(): Boolean =
@@ -679,17 +648,6 @@ object DouSettings {
 
     fun getSaveDirectory(): String =
         getPrefs().getString(KEY_SAVE_DIRECTORY, DEFAULT_SAVE_DIRECTORY) ?: DEFAULT_SAVE_DIRECTORY
-
-    fun getDownloadQuality(): String =
-        getPrefs().getString(KEY_DOWNLOAD_QUALITY, DEFAULT_DOWNLOAD_QUALITY) ?: DEFAULT_DOWNLOAD_QUALITY
-
-    // ==================== 界面 ====================
-
-    fun isShowToast(): Boolean =
-        getPrefs().getBoolean(KEY_SHOW_TOAST, DEFAULT_SHOW_TOAST)
-
-    fun isShowNotification(): Boolean =
-        getPrefs().getBoolean(KEY_SHOW_NOTIFICATION, DEFAULT_SHOW_NOTIFICATION)
 
     // ==================== 写入方法（设置页进程） ====================
 
@@ -742,32 +700,14 @@ object DouSettings {
         try { putBoolean(KEY_AUTO_PLAY, enabled) } catch (_: Throwable) {}
     }
 
-    fun setAutoSaveVideo(enabled: Boolean) =
-        putBoolean(KEY_AUTO_SAVE_VIDEO, enabled)
-
-    fun setAutoSaveImages(enabled: Boolean) =
-        putBoolean(KEY_AUTO_SAVE_IMAGES, enabled)
-
-    fun setAutoSaveLivePhoto(enabled: Boolean) =
-        putBoolean(KEY_AUTO_SAVE_LIVE_PHOTO, enabled)
-
     fun setSaveCommentMedia(enabled: Boolean) =
         putBoolean(KEY_SAVE_COMMENT_MEDIA, enabled)
 
     fun setSaveDirectory(dir: String) =
         putString(KEY_SAVE_DIRECTORY, dir)
 
-    fun setDownloadQuality(quality: String) =
-        putString(KEY_DOWNLOAD_QUALITY, quality)
-
     fun setBlockHotUpdate(enabled: Boolean) =
         putBoolean(KEY_BLOCK_HOT_UPDATE, enabled)
-
-    fun setShowToast(enabled: Boolean) =
-        putBoolean(KEY_SHOW_TOAST, enabled)
-
-    fun setShowNotification(enabled: Boolean) =
-        putBoolean(KEY_SHOW_NOTIFICATION, enabled)
 
     // ==================== 视频过滤 ====================
 

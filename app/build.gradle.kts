@@ -11,8 +11,8 @@ android {
         applicationId = "com.xposed.doupp"
         minSdk = 28
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0"
     }
 
     signingConfigs {
@@ -54,6 +54,16 @@ android {
             assets.srcDirs("src/main/assets")
             res.srcDirs("src/main/res")
         }
+    }
+
+    applicationVariants.all {
+        val variant = this
+        variant.outputs
+            .mapNotNull { it as? com.android.build.gradle.internal.api.BaseVariantOutputImpl }
+            .forEach { output ->
+                val baseName = "DYPP-${variant.versionName}"
+                output.outputFileName = "$baseName.apk"
+            }
     }
 }
 

@@ -6,8 +6,6 @@ import android.os.Bundle
 import android.preference.PreferenceActivity
 import android.preference.PreferenceFragment
 import android.widget.Toast
-import com.xposed.doupp.KeepAliveService
-
 /**
  * Dou+ 设置页面
  *
@@ -34,10 +32,6 @@ class SettingsActivity : PreferenceActivity() {
 
             // 初始化设置管理
             DouSettings.init(activity)
-
-            // 根据“后台保活服务”开关启动/停止保活前台服务
-            val sp = preferenceManager.sharedPreferences
-            applyKeepAlive(sp?.getBoolean(com.xposed.doupp.ui.DouSettings.KEY_KEEP_ALIVE, true) ?: true)
 
             // 绑定偏好变更监听
             bindPreferenceListeners()
@@ -113,17 +107,6 @@ class SettingsActivity : PreferenceActivity() {
             findPreference("block_hot_update")?.setOnPreferenceChangeListener { _, newValue ->
                 DouSettings.setBlockHotUpdate(newValue as Boolean); true
             }
-            // 自动保存
-            findPreference("auto_save_video")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setAutoSaveVideo(newValue as Boolean); true
-            }
-            findPreference("auto_save_images")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setAutoSaveImages(newValue as Boolean); true
-            }
-            findPreference("auto_save_live_photo")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setAutoSaveLivePhoto(newValue as Boolean); true
-            }
-
             // 评论区
             findPreference("save_comment_media")?.setOnPreferenceChangeListener { _, newValue ->
                 DouSettings.setSaveCommentMedia(newValue as Boolean); true
@@ -133,10 +116,6 @@ class SettingsActivity : PreferenceActivity() {
             findPreference("save_directory")?.setOnPreferenceChangeListener { _, newValue ->
                 DouSettings.setSaveDirectory(newValue as String); true
             }
-            findPreference("download_quality")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setDownloadQuality(newValue as String); true
-            }
-
             // 视频过滤
             findPreference("video_filter")?.setOnPreferenceChangeListener { _, newValue ->
                 val on = newValue as Boolean
@@ -168,17 +147,6 @@ class SettingsActivity : PreferenceActivity() {
                 DouSettings.setDoubleClickAction(newValue as String); true
             }
 
-            // 界面
-            findPreference("show_toast")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setShowToast(newValue as Boolean); true
-            }
-            findPreference("show_notification")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setShowNotification(newValue as Boolean); true
-            }
-            findPreference(com.xposed.doupp.ui.DouSettings.KEY_KEEP_ALIVE)?.setOnPreferenceChangeListener { _, newValue ->
-                applyKeepAlive(newValue as Boolean); true
-            }
-
             // 电报群组
             findPreference("telegram")?.setOnPreferenceClickListener {
                 openTelegram()
@@ -196,13 +164,5 @@ class SettingsActivity : PreferenceActivity() {
             }
         }
 
-        private fun applyKeepAlive(enabled: Boolean) {
-            val ctx = activity ?: return
-            if (enabled) {
-                KeepAliveService.start(ctx)
-            } else {
-                KeepAliveService.stop(ctx)
-            }
-        }
     }
 }

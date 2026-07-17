@@ -367,10 +367,20 @@ class SharePanelHook : BaseHook {
             arrayOf(Color.parseColor("#FFA502"), ICON_COPY_TEXT, Color.WHITE, "复制文案", Runnable { copyText(context) })
         } else null
 
+        val videoConfig = if (DouSettings.isDownloadVideoEnabled()) {
+            arrayOf(Color.parseColor("#FF4757"), ICON_DOWNLOAD_VIDEO, Color.WHITE, "下载视频", Runnable { downloadVideo(context) })
+        } else null
+        val musicConfig = if (DouSettings.isDownloadMusicEnabled()) {
+            arrayOf(Color.parseColor("#2ED573"), ICON_DOWNLOAD_MUSIC, Color.WHITE, "下载音乐", Runnable { downloadMusic(context) })
+        } else null
+        val imageConfig = if (DouSettings.isDownloadImageEnabled()) {
+            arrayOf(Color.parseColor("#1E90FF"), ICON_DOWNLOAD_IMAGE, Color.WHITE, "下载图片", Runnable { downloadImages(context) })
+        } else null
+
         val buttonConfigs = listOfNotNull(
-            arrayOf(Color.parseColor("#FF4757"), ICON_DOWNLOAD_VIDEO, Color.WHITE, "下载视频", Runnable { downloadVideo(context) }),
-            arrayOf(Color.parseColor("#2ED573"), ICON_DOWNLOAD_MUSIC, Color.WHITE, "下载音乐", Runnable { downloadMusic(context) }),
-            arrayOf(Color.parseColor("#1E90FF"), ICON_DOWNLOAD_IMAGE, Color.WHITE, "下载图片", Runnable { downloadImages(context) }),
+            videoConfig,
+            musicConfig,
+            imageConfig,
             copyConfig,
             arrayOf(Color.parseColor("#747D8C"), ICON_SETTINGS, Color.WHITE, "模块设置", Runnable { openSettings(context) })
         )
