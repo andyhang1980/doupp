@@ -68,13 +68,83 @@
 5. 强制停止抖音或重启手机
 6. 打开抖音，在视频分享面板底部即可看到功能按钮
 
-## 构建
+## 构建与发布
+
+### 开发构建
 
 ```bash
 gradle assembleDebug
 ```
 
 输出文件：`app/build/outputs/apk/debug/DYPP-<version>.apk`
+
+### 签名发布
+
+```bash
+# 设置签名环境变量
+$env:KEYSTORE_FILE = "keystore.jks"
+$env:KEYSTORE_PASSWORD = "<store密码>"
+$env:KEY_ALIAS = "<别名>"
+$env:KEY_PASSWORD = "<密钥密码>"
+
+# 构建 release APK（自动签名）
+gradle assembleRelease
+```
+
+输出文件：`app/build/outputs/apk/release/DYPP-<version>.apk`
+
+### 新建 keystore
+
+```bash
+keytool -genkey -v -keystore app/keystore.jks -alias <别名> -keyalg RSA -keysize 2048 -validity 36500
+```
+
+### GitHub Release 流程
+
+```bash
+# 1. 设置版本号
+#   app/build.gradle.kts → versionName / versionCode
+
+# 2. 构建 APK
+$env:KEYSTORE_PASSWORD = "<密码>"
+$env:KEY_ALIAS = "<别名>"
+$env:KEY_PASSWORD = "<密码>"
+gradle assembleRelease
+
+# 3. 提交并推送代码
+git add -A
+git commit -m "v<版本号>: ..."
+git push doupp main
+
+# 4. 打标签
+git tag v<版本号>
+git push doupp v<版本号>
+
+# 5. 创建 Release 并上传 APK
+$env:GH_TOKEN = "<GitHub个人访问令牌>"
+gh release create v<版本号> "app\build\outputs\apk\release\DYPP-<版本号>.apk" `
+  --repo andyhang1980/doupp `
+  --title "DYPP v<版本号>" `
+  --notes "DYPP v<版本号>"
+
+# 6. 查看所有旧 Release
+gh release list --repo andyhang1980/doupp
+
+# 7. 删除旧 Release
+$tags = gh release list --repo andyhang1980/doupp --json tagName | ConvertFrom-Json | ForEach-Object { $_.tagName }
+foreach ($tag in $tags) {
+  gh release delete $tag --repo andyhang1980/doupp --yes
+}
+
+# 8. 删除旧本地标签
+git tag -l "v1.0.*" | ForEach-Object { git tag -d $_ }
+
+# 9. 删除旧远端标签
+git push doupp --delete "refs/tags/v1.0.0" "refs/tags/v1.0.1" # ... 全部旧标签
+
+# 10. 查看 Release
+gh release view v<版本号> --repo andyhang1980/doupp --json assets
+```
 
 ## License
 
