@@ -54,7 +54,9 @@ jobs:
         if: ${{ github.ref_type == 'tag' }}
         run: |
           TAG="${{ github.ref_name }}"
-          cp app/build/outputs/apk/debug/app-debug.apk "doupp-${TAG}.apk"
+          APK_SRC=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+          if [ -z "$APK_SRC" ]; then echo "No APK found"; exit 1; fi
+          cp "$APK_SRC" "doupp-${TAG}.apk"
           echo "APK_PATH=doupp-${TAG}.apk" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release

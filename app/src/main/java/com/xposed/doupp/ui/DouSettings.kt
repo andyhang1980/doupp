@@ -61,7 +61,7 @@ object DouSettings {
     private const val DEFAULT_HIDE_AD_LABELS = true
     private const val DEFAULT_BLOCK_AD_SDK = true
     private const val DEFAULT_BLOCK_HOT_UPDATE = true
-    private const val DEFAULT_AUTO_PLAY = true
+    private const val DEFAULT_AUTO_PLAY = false
     private const val DEFAULT_SAVE_COMMENT_MEDIA = true
     private const val DEFAULT_SAVE_DIRECTORY = "Dou+"
     private const val DEFAULT_VIDEO_FILTER = false
