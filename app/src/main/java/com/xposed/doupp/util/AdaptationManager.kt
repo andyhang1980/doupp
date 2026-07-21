@@ -123,6 +123,16 @@ object AdaptationManager {
                 HookUtils.log("$TAG: 适配ViewPager失败: ${t.message}")
             }
 
+            // 9. 适配 yyds 混淆包（新版抖音 R8 混淆类）
+            try { results.add(scanYydsPackage(classLoader)) } catch (t: Throwable) {
+                HookUtils.log("$TAG: 扫描yyds包失败: ${t.message}")
+            }
+
+            // 10. 适配 SharePanel（新版分享面板）
+            try { results.add(adaptSharePanel(classLoader)) } catch (t: Throwable) {
+                HookUtils.log("$TAG: 适配SharePanel失败: ${t.message}")
+            }
+
             // 保存缓存
             saveCache(douyinVersion)
 
@@ -553,6 +563,126 @@ object AdaptationManager {
             HookUtils.log("$TAG: 加载缓存失败: ${t.message}")
             return false
         }
+    }
+
+    /**
+     * 扫描 yyds 混淆包 — 新版抖音 (39.70+) R8 全量混淆
+     *
+     * 新版抖音使用 R8 将所有应用类混淆到 yyds 包下，
+     * 关键类被重命名为 Cxxxx / AbstractCxxxx 等。
+     * 此方法扫描 yyds 包并缓存关键类名供各 Hook 使用。
+     */
+    private fun scanYydsPackage(classLoader: ClassLoader): AdaptationResult {
+        val feature = "yyds混淆包"
+        val classNames = mutableListOf<String>()
+
+        try {
+            // 1. 获取 yyds 包下的所有类
+            val yydsClasses = ClassFinder.getClassesInPackage(classLoader, "yyds")
+            HookUtils.log("$TAG: yyds 包下共 ${yydsClasses.size} 个类")
+
+            // 2. 按类别缓存关键类
+            // 2a. 分享面板相关: 实现了 InterfaceC0679 且操作 share_bottom_sheet 的类
+            val sharePanelClasses = yydsClasses.filter { cls ->
+                try {
+                    // 检查是否有 share_bottom_sheet 相关操作
+                    cls.declaredMethods.any { m ->
+                        val params = m.parameterTypes.map { it.name }
+                        params.any { it.contains("share") || it.contains("ViewGroup") }
+                    }
+                } catch (_: Throwable) { false }
+            }
+            if (sharePanelClasses.isNotEmpty()) {
+                adaptationResults["share_panel"] = sharePanelClasses.map { it.name }
+                classNames.addAll(sharePanelClasses.map { it.name })
+                HookUtils.log("$TAG: yyds分享面板候选: ${sharePanelClasses.map { it.name }}")
+            }
+
+            // 2b. 寻找 AutoPlayConfig / AutoPlay 相关类
+            val autoPlayClasses = ClassFinder.findByStringConstants(
+                classLoader, "yyds",
+                listOf("auto_play_key", "AutoPlayConfig", "auto_play")
+            )
+            if (autoPlayClasses.isNotEmpty()) {
+                adaptationResults["autoplay_yyds"] = autoPlayClasses.map { it.name }
+                classNames.addAll(autoPlayClasses.map { it.name })
+            }
+
+            // 2d. 寻找 Feed/ViewPager 相关类
+            val feedViewClasses = yydsClasses.filter { cls ->
+                try {
+                    val name = cls.name
+                    name.contains("ViewPager") || name.contains("Flippable") ||
+                    cls.declaredMethods.any { m ->
+                        m.name.contains("page") || m.name.contains("scroll") ||
+                        m.name.contains("feed") || m.name.contains("aweme")
+                    }
+                } catch (_: Throwable) { false }
+            }
+            if (feedViewClasses.isNotEmpty()) {
+                adaptationResults["feed_view_yyds"] = feedViewClasses.map { it.name }
+                classNames.addAll(feedViewClasses.map { it.name })
+            }
+
+        } catch (t: Throwable) {
+            HookUtils.log("$TAG: yyds扫描异常: ${t.message}")
+        }
+
+        adaptationResults["yyds"] = classNames
+        return AdaptationResult(
+            feature,
+            classNames,
+            classNames.isNotEmpty(),
+            if (classNames.isNotEmpty()) "yyds包扫描完成，找到 ${classNames.size} 个关键类" else "yyds包不存在"
+        )
+    }
+
+    /**
+     * 适配 SharePanel — 新版抖音 share_bottom_sheet
+     *
+     * 新版分享面板使用 R.layout.share_bottom_sheet 布局，
+     * 包含 share_hsv、share_view、video_view、music_view 等 ID。
+     * 检测方法: 搜索字符串 "share_bottom_sheet" 定位关键类。
+     */
+    private fun adaptSharePanel(classLoader: ClassLoader): AdaptationResult {
+        val feature = "SharePanel适配"
+        val classNames = mutableListOf<String>()
+
+        try {
+            // 1. 通过字符串搜索 share_bottom_sheet
+            val byString = ClassFinder.findByStringConstants(
+                classLoader, "yyds",
+                listOf("share_bottom_sheet")
+            )
+            classNames.addAll(byString.map { it.name })
+            HookUtils.log("$TAG: 分享面板(share_bottom_sheet)类: ${byString.map { it.name }}")
+
+            // 2. 搜索包含 share_hsv / share_view ID 的类
+            val byId = ClassFinder.findByStringConstants(
+                classLoader, "yyds",
+                listOf("share_hsv", "share_view", "shareAddTool")
+            )
+            for (cls in byId) {
+                if (cls.name !in classNames) classNames.add(cls.name)
+            }
+            HookUtils.log("$TAG: 分享面板(share_hsv)类: ${byId.map { it.name }}")
+
+        } catch (t: Throwable) {
+            HookUtils.log("$TAG: SharePanel适配异常: ${t.message}")
+        }
+
+        // 保存到缓存
+        if (classNames.isNotEmpty()) {
+            val existing = adaptationResults["share_panel"] ?: emptyList()
+            adaptationResults["share_panel"] = (existing + classNames).distinct()
+        }
+
+        return AdaptationResult(
+            feature,
+            classNames,
+            classNames.isNotEmpty(),
+            if (classNames.isNotEmpty()) "分享面板适配完成" else "未检测到新版分享面板"
+        )
     }
 
     /**

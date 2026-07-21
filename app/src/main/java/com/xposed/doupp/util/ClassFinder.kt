@@ -390,23 +390,77 @@ object ClassFinder {
         try {
             // 尝试读取类的所有注解值（字符串类型）
             for (annotation in clazz.declaredAnnotations) {
-                strings.add(annotation.annotationClass.simpleName ?: "")
+                try { strings.add(annotation.annotationClass.simpleName ?: "") } catch (_: Throwable) {}
             }
 
             // 遍历方法的注解和异常
             for (m in clazz.declaredMethods) {
-                for (ex in m.exceptionTypes) {
-                    strings.add(ex.name)
-                }
+                try {
+                    for (ex in m.exceptionTypes) {
+                        strings.add(ex.name)
+                    }
+                    // 添加参数类型名
+                    for (p in m.parameterTypes) {
+                        strings.add(p.name)
+                    }
+                } catch (_: Throwable) {}
             }
 
             // 字段类型名
             for (f in clazz.declaredFields) {
-                strings.add(f.type.name)
+                try { strings.add(f.type.name) } catch (_: Throwable) {}
+            }
+
+            // R8 混淆类: 检查类中所有字段的常量值
+            for (f in clazz.declaredFields) {
+                try {
+                    if (f.type == String::class.java) {
+                        f.isAccessible = true
+                        val v = f.get(null) as? String
+                        if (v != null && v.length > 3 && v.length < 200) {
+                            strings.add(v)
+                        }
+                    }
+                } catch (_: Throwable) {}
             }
         } catch (_: Throwable) { }
 
         return strings
+    }
+
+    /**
+     * 通过资源 ID 使用特征搜索类（新版抖音 R8 混淆专用）
+     *
+     * 新版抖音使用 R8 混淆，应用类全部在 yyds 包下。
+     * 通过搜索类中引用的布局/ID资源名来定位目标类。
+     *
+     * @param classLoader 类加载器
+     * @param resourceNames 资源名列表（如 "share_bottom_sheet", "share_hsv"）
+     * @return 匹配的 Class 列表
+     */
+    fun findByResourceRefs(
+        classLoader: ClassLoader,
+        resourceNames: List<String>
+    ): List<Class<*>> {
+        val results = mutableListOf<Class<*>>()
+        try {
+            val classes = getClassesInPackage(classLoader, "yyds", includeInner = true)
+            HookUtils.log("ClassFinder: 资源引用搜索, 扫描 ${classes.size} 个 yyds 类")
+
+            for (clazz in classes) {
+                try {
+                    val allStrings = getClassConstantStrings(clazz, classLoader)
+                    if (resourceNames.any { resName ->
+                            allStrings.any { it.contains(resName, ignoreCase = true) }
+                        }) {
+                        results.add(clazz)
+                    }
+                } catch (_: Throwable) {}
+            }
+        } catch (t: Throwable) {
+            HookUtils.log("ClassFinder: 资源引用搜索失败: ${t.message}")
+        }
+        return results
     }
 
     /**

@@ -18,6 +18,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.xposed.doupp.ui.DouSettings
+import com.xposed.doupp.util.ClassFinder
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.IconRes
 import com.xposed.doupp.util.MediaCache
@@ -72,7 +73,17 @@ class SharePanelHook : BaseHook {
             "QrCodeSharePanelDialog",
             "NewSharePanelDialog",
             "SideslipSharePanel",
-            "ShareDialog"
+            "ShareDialog",
+            // 新版抖音 39.70+ R8 混淆
+            "share_bottom_sheet",
+            "C0994",  // yyds 分享面板处理类
+            "InterfaceC0679"  // 分享面板接口
+        )
+
+        /** 新版抖音 share_bottom_sheet 布局特征 ID 字符串 */
+        private val SHARE_BOTTOM_SHEET_IDS = arrayOf(
+            "share_hsv", "share_view", "shareAddTool",
+            "shareFunctionText", "share_comment_view"
         )
 
         /** 分享面板特征文本关键词 */
@@ -98,13 +109,21 @@ class SharePanelHook : BaseHook {
                         val dialog = param.thisObject as? Dialog ?: return
                         val dialogClassName = dialog.javaClass.name
 
-                        // 快速类名匹配
+                        // 快速类名匹配（含新版混淆类名）
                         val isSharePanel = SHARE_PANEL_CLASS_KEYWORDS.any {
                             dialogClassName.contains(it)
                         }
 
-                        if (isSharePanel) {
-                            HookUtils.log("$TAG: 检测到分享面板 Dialog: $dialogClassName")
+                        // 新版抖音: 检测 share_bottom_sheet 布局特征
+                        val hasBottomSheetLayout = dialog.window?.let { win ->
+                            try {
+                                val contentView = win.findViewById<ViewGroup>(android.R.id.content)
+                                contentView?.let { hasShareBottomSheetIds(it) }
+                            } catch (_: Throwable) { false }
+                        } ?: false
+
+                        if (isSharePanel || hasBottomSheetLayout) {
+                            HookUtils.log("$TAG: 检测到分享面板 Dialog: $dialogClassName (layout=${hasBottomSheetLayout})")
                             injectIntoDialog(dialog)
                         } else {
                             // 非分享面板 Dialog，检查内容是否包含分享关键词
@@ -151,6 +170,23 @@ class SharePanelHook : BaseHook {
                 })
             } catch (_: Throwable) {}
 
+            // 策略4: 新版抖音 — 直接扫描 yyds 包中操作 share_bottom_sheet 的类
+            try {
+                val yydsClasses = ClassFinder.getClassesInPackage(classLoader, "yyds")
+                for (cls in yydsClasses) {
+                    try {
+                        if (cls.declaredMethods.any { m ->
+                                try {
+                                    val params = m.parameterTypes.map { it.name }
+                                    params.any { it.contains("share") || it.contains("ViewGroup") }
+                                } catch (_: Throwable) { false }
+                            }) {
+                            HookUtils.log("$TAG: yyds分享面板候选类: ${cls.name}")
+                        }
+                    } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+
             HookUtils.log("$TAG: Dialog.show/setContentView Hook 已安装")
             installed = true
         }
@@ -176,6 +212,21 @@ class SharePanelHook : BaseHook {
         } catch (t: Throwable) {
             HookUtils.log("$TAG: injectButtonBar 失败: ${t.message}")
         }
+    }
+
+    /**
+     * 检测 View 中是否包含新版 share_bottom_sheet 布局特征 ID
+     */
+    private fun hasShareBottomSheetIds(root: ViewGroup): Boolean {
+        return try {
+            SHARE_BOTTOM_SHEET_IDS.any { idName ->
+                try {
+                    val id = root.resources.getIdentifier(idName, "id",
+                        root.context.packageName)
+                    id != 0 && root.findViewById<View>(id) != null
+                } catch (_: Throwable) { false }
+            }
+        } catch (_: Throwable) { false }
     }
 
     /**

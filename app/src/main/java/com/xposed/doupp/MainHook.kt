@@ -42,7 +42,7 @@ class MainHook : IXposedHookLoadPackage {
     companion object {
         const val LOG_TAG = "Dou+"
         const val TARGET_PACKAGE = "com.ss.android.ugc.aweme"
-        const val MODULE_VERSION = "3.4.41"
+        const val MODULE_VERSION = "3.5.0"
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
@@ -86,6 +86,9 @@ class MainHook : IXposedHookLoadPackage {
 
                 val delayedHooks = createHooks()
                 tryInstallHooks(delayedHooks, realClassLoader, "延迟安装")
+
+                // 启动自动适配（延迟3秒，避免启动卡顿）
+                startAdaptationWithToast(realClassLoader)
             }
 
             HookUtils.log("==============================================")

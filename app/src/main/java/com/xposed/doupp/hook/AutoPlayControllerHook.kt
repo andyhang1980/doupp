@@ -5,6 +5,7 @@ import android.os.Looper
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.DexKitManager
 import com.xposed.doupp.util.HookUtils
+import com.xposed.doupp.util.MediaCache
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import java.lang.reflect.Method
@@ -51,7 +52,41 @@ class AutoPlayControllerHook : BaseHook {
         private val hooked = HashSet<String>()
 
         // triggerMoveToNext 供视频过滤（VideoFilterHook）跳过使用
-    private fun enabled(): Boolean = DouSettings.isAutoPlayEnabled()
+    private fun enabled(): Boolean = DouSettings.isAutoPlayEnabled() && !isCurrentAwemeLive()
+
+    private fun isCurrentAwemeLive(): Boolean {
+        val aweme = MediaCache.getCurrentAweme() ?: return false
+        return try {
+            val cls = aweme.javaClass
+            for (f in listOf("live", "mLive", "liveRoom", "roomInfo")) {
+                try {
+                    val field = cls.getDeclaredField(f)
+                    field.isAccessible = true
+                    if (field.get(aweme) != null) return true
+                } catch (_: Throwable) {}
+            }
+            for (f in listOf("liveId", "roomId", "mLiveId")) {
+                try {
+                    val field = cls.getDeclaredField(f)
+                    field.isAccessible = true
+                    val v = field.get(aweme)
+                    if (v is String && v.isNotEmpty()) return true
+                } catch (_: Throwable) {}
+            }
+            try {
+                val m = cls.declaredMethods.firstOrNull {
+                    it.parameterCount == 0 && it.name.equals("isLive", ignoreCase = true)
+                }
+                if (m != null) {
+                    val r = m.invoke(aweme)
+                    if (r is Boolean && r) return true
+                }
+            } catch (_: Throwable) {}
+            false
+        } catch (_: Throwable) {
+            false
+        }
+    }
 
         /**
          * 走官方机制跳到下一个视频（不模拟触摸）。

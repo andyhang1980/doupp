@@ -79,12 +79,12 @@ object DexKitManager {
      * 通过类中方法引用的字符串特征查找候选类名。
      *
      * @param strings 类中任一方法引用的字符串（全部出现才匹配，默认 contains）
-     * @param packages 限定搜索包名前缀
+     * @param packages 限定搜索包名前缀（默认搜索抖音主包 + yyds混淆包）
      * @return 命中的类名列表（可能多个，调用方需结合结构特征二次筛选）
      */
     fun findClassesByStrings(
         strings: List<String>,
-        packages: List<String> = listOf("com.ss.android.ugc.aweme")
+        packages: List<String> = listOf("com.ss.android.ugc.aweme", "yyds")
     ): List<String> {
         val b = getBridge() ?: return emptyList()
         return try {

@@ -1,6 +1,6 @@
 # DYPP — 抖音增强工具
 
-基于 LSPosed 框架的 Xposed 模块，为抖音（抖音 39.6.0）提供无水印保存和增强功能。
+基于 LSPosed 框架的 Xposed 模块，为抖音（支持 39.6.0 ~ 39.70+）提供无水印保存和增强功能。
 
 ## 特点
 
@@ -46,9 +46,22 @@
 
 ## 适配
 
-- 抖音 39.6.0
+- 抖音 39.6.0 ~ 39.70.0+（自动适配 R8 混淆 yyds 包）
 - Android 9.0+ (API 28)
 - LSPosed 框架 (1.8+ 或 2.0.x)
+
+### 自动适配机制
+
+模块内置 **AdaptationManager**，在首次运行时自动检测抖音版本并执行以下扫描：
+1. **Aweme 类** — 通过 DexKit 字符串特征或 ClassFinder 候选列表定位
+2. **yyds 混淆包** — 新版抖音 R8 全量混淆后所有应用类在 yyds 包下
+3. **分享面板** — 通过 layout/share_bottom_sheet + share_hsv 等 ID 定位
+4. **AutoPlayController** — 通过 auto_play_key 字符串特征定位
+5. **网络库** — 自动检测 Cronet / OkHttp / ExoPlayer 等版本
+6. **热更新框架** — 检测字节跳动自研 / Tinker / Sophix 等
+7. **广告 SDK** — 检测穿山甲 / 广点通 / 快手 / 百度 等
+
+适配结果缓存到文件，下次启动直接读取，无需重复扫描。
 
 ## 技术架构
 
