@@ -51,8 +51,121 @@ class AutoPlayControllerHook : BaseHook {
 
         private val hooked = HashSet<String>()
 
+        // Keva 同步缓存（避免每次反射）
+        @Volatile private var kevaContainer: Any? = null
+        @Volatile private var kevaKeys: Any? = null
+        @Volatile private var kevaPutMethod: Method? = null
+        @Volatile private var kevaAutoPlayKey: Any? = null
+        /** 上一次同步到 Keva 的值，避免反复写入 */
+        @Volatile private var lastKevaSync: Boolean? = null
+
         // triggerMoveToNext 供视频过滤（VideoFilterHook）跳过使用
-    private fun enabled(): Boolean = DouSettings.isAutoPlayEnabled() && !isCurrentAwemeLive()
+    private fun enabled(): Boolean {
+        val autoPlay = DouSettings.isAutoPlayEnabled()
+        val live = isCurrentAwemeLive()
+        val result = autoPlay && !live
+        if (!autoPlay) {
+            HookUtils.log("$TAG: enabled=false (autoPlay=$autoPlay, live=$live)")
+        }
+        syncKevaIfNeeded(result)
+        return result
+    }
+
+    private fun syncKevaIfNeeded(value: Boolean) {
+        if (lastKevaSync == value) return
+        lastKevaSync = value
+        val put = kevaPutMethod
+        val container = kevaContainer
+        val key = kevaAutoPlayKey
+        if (put == null || container == null || key == null) return
+        try {
+            put.invoke(container, key, value)
+            HookUtils.log("$TAG: syncKeva -> $value ok")
+        } catch (t: Throwable) {
+            HookUtils.log("$TAG: syncKeva fail: ${t.message}")
+        }
+    }
+
+    /**
+     * 运行时扫描 C1714 类，自动查找 Keva 容器（类型含 m4078 方法的静态字段）
+     * 和键数组（InterfaceC1354[] 静态字段）及 auto-play 键（索引 22）。
+     */
+    @JvmStatic
+    fun initKevaCache(classLoader: ClassLoader) {
+        if (kevaContainer != null) return
+        try {
+            val c1714 = Class.forName("yyds.C1714", false, classLoader)
+            // 找键数组: 找到 InterfaceC1354[] 静态字段（取索引 22 = auto-play 键）
+            val iface1354Class = try { Class.forName("yyds.InterfaceC1354", false, classLoader) } catch (_: Throwable) { null }
+            for (f in c1714.declaredFields) {
+                if (java.lang.reflect.Modifier.isStatic(f.modifiers) && f.type.isArray) {
+                    try {
+                        val arrObj = f.get(null) ?: continue
+                        val len = java.lang.reflect.Array.getLength(arrObj)
+                        if (len == 0) continue
+                        val elem = java.lang.reflect.Array.get(arrObj, 0) ?: continue
+                        // 判断元素是否为 InterfaceC1354 实例
+                        if (iface1354Class == null || iface1354Class.isInstance(elem)) {
+                            f.isAccessible = true
+                            val arr = arrObj as? Array<*> ?: continue
+                            kevaKeys = arr
+                            if (len > 22) {
+                                kevaAutoPlayKey = arr[22]
+                                HookUtils.log("$TAG: Keva 键数组=${f.name}, size=$len")
+                            }
+                            break
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+            val ifaceKey = kevaAutoPlayKey?.javaClass ?: run {
+                HookUtils.log("$TAG: Keva 未找到键类型")
+                return
+            }
+            // 找 Keva 容器: 静态字段，其类型含 put(ifaceKey, Object) 方法
+            for (f in c1714.declaredFields) {
+                if (java.lang.reflect.Modifier.isStatic(f.modifiers) && !f.type.isArray) {
+                    for (m in f.type.declaredMethods) {
+                        if (m.parameterCount == 2 && m.returnType == Void.TYPE &&
+                            m.parameterTypes[0] == ifaceKey && m.parameterTypes[1] == Any::class.java) {
+                            f.isAccessible = true
+                            kevaContainer = f.get(null)
+                            kevaPutMethod = m
+                            HookUtils.log("$TAG: Keva 容器=${f.name}.${m.name}(${m.parameterTypes[0].simpleName},${m.parameterTypes[1].simpleName})")
+                            break
+                        }
+                    }
+                    if (kevaContainer != null) break
+                }
+            }
+            if (kevaContainer == null) {
+                // 兜底: 只在 C2429 类中找 put(InterfaceC1354, Object) 方法
+                val c2429 = try { Class.forName("yyds.C2429", false, classLoader) } catch (_: Throwable) { null }
+                if (c2429 != null) {
+                    for (m in c2429.declaredMethods) {
+                        if (m.parameterCount == 2 && m.returnType == Void.TYPE &&
+                            m.parameterTypes[1] == Any::class.java && m.parameterTypes[0].name.contains("InterfaceC")) {
+                            for (f in c1714.declaredFields) {
+                                if (java.lang.reflect.Modifier.isStatic(f.modifiers) && f.type == c2429) {
+                                    f.isAccessible = true
+                                    kevaContainer = f.get(null)
+                                    kevaPutMethod = m
+                                    HookUtils.log("$TAG: Keva 容器 兜底=${f.name}.${m.name}()")
+                                    break
+                                }
+                            }
+                            if (kevaContainer != null) break
+                        }
+                    }
+                }
+            }
+            if (kevaContainer == null) HookUtils.log("$TAG: Keva 容器未找到")
+            if (kevaAutoPlayKey == null) HookUtils.log("$TAG: Keva auto-play key 未找到")
+        } catch (t: Throwable) {
+            HookUtils.log("$TAG: initKevaCache 失败: ${t.message}")
+        }
+    }
+
 
     private fun isCurrentAwemeLive(): Boolean {
         val aweme = MediaCache.getCurrentAweme() ?: return false
@@ -93,6 +206,10 @@ class AutoPlayControllerHook : BaseHook {
          */
         @JvmStatic
         fun triggerMoveToNext() {
+            if (!DouSettings.isAutoPlayEnabled()) {
+                HookUtils.log("$TAG: triggerMoveToNext blocked (autoPlay off)")
+                return
+            }
             val vm = currentAutoPlayVM ?: return
             try {
                 val eField = vm.javaClass.getDeclaredField(eFieldName)
@@ -137,6 +254,12 @@ class AutoPlayControllerHook : BaseHook {
             hookBooleanMethod(clazz, structure.jN1)
             // 构造后把开关 LiveData 置为 true
             hookConstructor(clazz, structure.gN1)
+
+            // 初始化 Keva 缓存，写入 native 存储（覆盖另类路径）
+            initKevaCache(classLoader)
+
+            // 也 Hook 其它 DexKit 候选类（自动播放路径可能不经过 ViewModel）
+            hookOtherAutoPlayCandidates(classLoader, clazz.name)
 
             if (hooked.isNotEmpty()) {
                 installed = true
@@ -236,15 +359,86 @@ class AutoPlayControllerHook : BaseHook {
             m.isAccessible = true
             XposedBridge.hookMethod(m, object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (enabled()) {
-                        param.result = true
-                    }
+                    val v = enabled()
+                    if (!v) HookUtils.log("$TAG: $name beforeHook -> false")
+                    param.result = v
+                }
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val v = enabled()
+                    if (param.result != v) HookUtils.log("$TAG: $name afterHook override ${param.result} -> $v")
+                    param.result = v
                 }
             })
             hooked.add(name)
             HookUtils.log("$TAG: hook $name ok")
         } catch (t: Throwable) {
             HookUtils.log("$TAG: hook $name fail: ${t.message}")
+        }
+    }
+
+    /**
+     * 对 DexKit 找到的其它 auto_play_key 候选类做防御性 Hook：
+     * - hook 所有 ()Z 方法返回 enabled()
+     * - hook 所有 ()V 方法并判断是否屏蔽
+     * - 记录构造器调用
+     */
+    private fun hookOtherAutoPlayCandidates(classLoader: ClassLoader, viewModelName: String) {
+        val candidates = DexKitManager.findClassesByStrings(listOf("auto_play_key"))
+        for (cName in candidates) {
+            if (cName == viewModelName) continue
+            val clazz = try { Class.forName(cName, false, classLoader) } catch (_: Throwable) { null }
+            if (clazz == null) {
+                HookUtils.log("$TAG: 候选类 $cName 未加载")
+                continue
+            }
+            HookUtils.log("$TAG: 候选类 $cName 已加载，防御性 Hook")
+
+            // 使用 DexKit 查找引用 "auto_play_key" 的方法（最相关）
+            val keyMethod = DexKitManager.findMethodNameByStrings(cName, listOf("auto_play_key"))
+            if (keyMethod != null) {
+                try {
+                    val km = clazz.getDeclaredMethod(keyMethod)
+                    if (km.returnType == Boolean::class.javaPrimitiveType && km.parameterTypes.isEmpty()) {
+                        hookBooleanMethod(clazz, keyMethod)
+                        HookUtils.log("$TAG: $cName.$keyMethod (auto_play_key) hook ok")
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            // Hook 所有 ()Z 方法
+            for (m in clazz.declaredMethods) {
+                val sig = "${m.name}(${m.parameterTypes.joinToString(",")})${m.returnType.simpleName}"
+                try {
+                    if (m.returnType == Boolean::class.javaPrimitiveType && m.parameterTypes.isEmpty()) {
+                        if (m.name == keyMethod) continue // 已 hook
+                        m.isAccessible = true
+                        XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                            override fun beforeHookedMethod(param: MethodHookParam) {
+                                val v = enabled()
+                                if (!v) HookUtils.log("$TAG: $cName.$sig -> false")
+                                param.result = v
+                            }
+                            override fun afterHookedMethod(param: MethodHookParam) {
+                                param.result = enabled()
+                            }
+                        })
+                        hooked.add("$cName.$sig")
+                        HookUtils.log("$TAG: hook $cName.$sig ok")
+                    }
+                } catch (_: Throwable) {}
+            }
+            // Hook 所有构造器（诊断）
+            for (ctor in clazz.declaredConstructors) {
+                try {
+                    ctor.isAccessible = true
+                    XposedBridge.hookMethod(ctor, object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val sig = ctor.parameterTypes.joinToString(",")
+                            HookUtils.log("$TAG: $cName.<init>($sig) 实例化")
+                        }
+                    })
+                } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -257,12 +451,11 @@ class AutoPlayControllerHook : BaseHook {
                     try {
                         val vm = param.thisObject ?: return
                         currentAutoPlayVM = vm
-                        if (!enabled()) return
                         val gMethod = clazz.getDeclaredMethod(gN1)
                         gMethod.isAccessible = true
                         val liveData = gMethod.invoke(vm) ?: return
                         val post = liveData.javaClass.getMethod("postValue", Any::class.java)
-                        post.invoke(liveData, java.lang.Boolean.TRUE)
+                        post.invoke(liveData, enabled())
                     } catch (_: Throwable) {
                     }
                 }
