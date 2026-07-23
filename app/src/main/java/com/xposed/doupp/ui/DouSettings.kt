@@ -16,11 +16,19 @@ import com.xposed.doupp.util.HookUtils
  * - 抖音进程通过 new XSharedPreferences(modulePkg, prefsName) 读取
  * - 需在 prefs.xml 中设置 android:worldReadableMode（旧API）
  * - 或通过 LSPosed 的远程 SharedPreferences 机制（新API）
+ *
+ * 双端存储兜底:
+ * - 若上述策略全失败（如 LSPosed 2.x 无 XSharedPreferences、模块进程未运行），
+ *   则使用抖音进程本地的 SharedPreferences（doupp_settings.xml）作为存储，
+ *   并定期从模块配置文件同步更新。
  */
 object DouSettings {
 
     const val PREFS_NAME = "douyin_helper_settings"
     const val MODULE_PACKAGE = "com.xposed.doupp"
+
+    /** 抖音进程本地兜底 prefs 名称（位于抖音 data 目录） */
+    const val LOCAL_PREFS_NAME = "doupp_settings"
 
     // ==================== Key 定义 ====================
     const val KEY_DOWNLOAD_VIDEO = "download_video"
@@ -83,7 +91,7 @@ object DouSettings {
     /** ProviderPrefs 两次刷新最小间隔（毫秒） */
     private const val PROVIDER_REFRESH_MS = 3000L
 
-    /** 是否已记录过“使用默认值”日志，避免刷屏 */
+    /** 是否已记录过"使用默认值"日志，避免刷屏 */
     private var defaultLogged = false
 
     /** ContentProvider 返回的最新设置 Bundle（跨进程读取） */
@@ -92,6 +100,16 @@ object DouSettings {
 
     /** 设置页进程持有的 Context，用于把 prefs 文件设为跨进程可读写 */
     private var prefsContext: Context? = null
+
+    /** 抖音进程 Context（用于本地 prefs 兜底） */
+    @Volatile
+    private var localContext: Context? = null
+
+    /** 最近一次从模块文件同步到本地的时间戳 */
+    private var lastSyncFromFile = 0L
+
+    /** 两次文件同步的最小间隔 */
+    private const val SYNC_FROM_FILE_MS = 5000L
 
     /**
      * 自动播放运行期状态（内存中）。
@@ -104,6 +122,62 @@ object DouSettings {
     /** 自动播放状态的独立世界可读写文件路径（位于模块 data 目录） */
     private fun autoPlayFile(): java.io.File {
         return java.io.File("/data/data/$MODULE_PACKAGE/shared_prefs/.dou_autoplay")
+    }
+
+    /**
+     * 设置抖音进程的 Context，用于本地 prefs 兜底。
+     * 在 ContextHelper.onApplicationReady 回调中调用。
+     */
+    fun setLocalContext(ctx: Context) {
+        localContext = ctx
+    }
+
+    /**
+     * 从模块的预配文件同步到抖音本地 prefs（跨 UID 文件读取兜底）。
+     * 仅在本地 prefs 初始化后且模块文件可读时执行。
+     */
+    private fun syncFromModuleFile() {
+        val local = prefs
+        if (local == null || local === DefaultPrefs()) return
+        val now = System.currentTimeMillis()
+        if (now - lastSyncFromFile < SYNC_FROM_FILE_MS) return
+        lastSyncFromFile = now
+        var fileFound = false
+        try {
+            val f = java.io.File("/data/data/$MODULE_PACKAGE/shared_prefs/$PREFS_NAME.xml")
+            fileFound = f.exists()
+            if (!fileFound) {
+                HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不存在")
+                return
+            }
+            if (!f.canRead()) {
+                HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不可读 (${f.length()} bytes)")
+                return
+            }
+            val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+            val builder = factory.newDocumentBuilder()
+            val doc = builder.parse(f)
+            val editor = local.edit()
+            var count = 0
+            val boolNodes = doc.getElementsByTagName("boolean")
+            for (i in 0 until boolNodes.length) {
+                val node = boolNodes.item(i)
+                val key = node.attributes.getNamedItem("name")?.nodeValue ?: continue
+                val value = node.attributes.getNamedItem("value")?.nodeValue == "true"
+                editor.putBoolean(key, value); count++
+            }
+            val stringNodes = doc.getElementsByTagName("string")
+            for (i in 0 until stringNodes.length) {
+                val node = stringNodes.item(i)
+                val key = node.attributes.getNamedItem("name")?.nodeValue ?: continue
+                val value = node.textContent ?: ""
+                editor.putString(key, value); count++
+            }
+            editor.apply()
+            HookUtils.log("DouSettings: syncFromModuleFile 成功，同步 $count 个值")
+        } catch (t: Throwable) {
+            HookUtils.log("DouSettings: syncFromModuleFile 异常: ${t.message} (fileExists=$fileFound)")
+        }
     }
 
     /**
@@ -153,20 +227,25 @@ object DouSettings {
     /**
      * 把模块自身 data 目录及 shared_prefs 文件设为其它进程（抖音）可访问。
      * 默认 /data/data/<module> 目录其它 app 无法遍历，需对目录加可执行位、对文件加可读位。
+     *
+     * 同时使用 Java API 和 Runtime.chmod（兜底，某些 ROM 上 Java API 静默失败）。
      */
     private fun makeWorldAccessible(context: Context) {
         try {
-            val dataDir = java.io.File(context.applicationInfo.dataDir)
-            setAccessible(dataDir)
-            val prefsDir = java.io.File(dataDir, "shared_prefs")
-            // shared_prefs 目录需可被其它进程（抖音）写入，以便保存自动播放状态
-            prefsDir.setReadable(true, false)
-            prefsDir.setExecutable(true, false)
-            prefsDir.setWritable(true, false)
-            val prefsFile = java.io.File(prefsDir, "$PREFS_NAME.xml")
+            val dataDir = context.applicationInfo.dataDir
+            setAccessible(java.io.File(dataDir))
+            chmod("$dataDir/shared_prefs", "755")
+            chmod("$dataDir/shared_prefs/$PREFS_NAME.xml", "644")
+            val prefsFile = java.io.File(dataDir, "shared_prefs/$PREFS_NAME.xml")
             if (prefsFile.exists()) {
                 prefsFile.setReadable(true, false)
             }
+        } catch (_: Throwable) {}
+    }
+
+    private fun chmod(path: String, mode: String) {
+        try {
+            Runtime.getRuntime().exec(arrayOf("chmod", mode, path))
         } catch (_: Throwable) {}
     }
 
@@ -174,6 +253,7 @@ object DouSettings {
         try {
             dir.setReadable(true, false)
             dir.setExecutable(true, false) // 目录需要可执行位才能被遍历
+            chmod(dir.absolutePath, "755")
         } catch (_: Throwable) {}
     }
 
@@ -327,7 +407,25 @@ object DouSettings {
                 HookUtils.log("DouSettings: 文件读取方式失败: ${t.message}")
             }
 
-            // 策略4: 所有策略失败，兜底 DefaultPrefs 避免每次 getPrefs 都重试 ContentProvider 刷屏
+            // 策略4（兜底）: 使用抖音进程本地的 SharedPreferences
+            // 当上述所有跨进程策略都失败时（模块进程未运行、XSharedPreferences 不可用、
+            // 文件跨 UID 不可读），使用宿主（抖音）自身 data 目录下的 prefs 文件。
+            // 此文件由本 hook 进程创建并维护，天然可读可写。
+            try {
+                val ctx = localContext ?: com.xposed.doupp.util.ContextHelper.getContext()
+                if (ctx != null) {
+                    val localSp = ctx.getSharedPreferences(LOCAL_PREFS_NAME, Context.MODE_PRIVATE)
+                    prefs = localSp
+                    HookUtils.log("DouSettings: 抖音本地 SharedPreferences 初始化成功")
+                    // 尝试从模块文件同步初始值（静默失败不影响启动）
+                    syncFromModuleFile()
+                    return@synchronized
+                }
+            } catch (t: Throwable) {
+                HookUtils.log("DouSettings: 本地 SharedPreferences 策略失败: ${t.message}")
+            }
+
+            // 策略5: 所有策略失败，兜底 DefaultPrefs 避免每次 getPrefs 都重试 ContentProvider 刷屏
             HookUtils.log("DouSettings: 所有策略失败，使用默认值")
             prefs = DefaultPrefs()
         }
@@ -479,6 +577,16 @@ object DouSettings {
                         loadMethod.isAccessible = true
                         loadMethod.invoke(sp)
                     }
+                } else if (className.contains("SharedPreferencesImpl")) {
+                    // 本地 SharedPreferences 兜底：尝试通过 ContentProvider 获取最新设置
+                    //（模块进程可能已被 settings 页面或 KeepAliveService 启动）。
+                    // 若 ContentProvider 可用，切换到 ProviderPrefs 实现实时读取。
+                    if (tryInitFromProvider()) {
+                        prefs = ProviderPrefs()
+                        HookUtils.log("DouSettings: ContentProvider 可用，切换到实时模式")
+                    }
+                    // 若 ContentProvider 不可用，尝试从模块文件同步
+                    syncFromModuleFile()
                 }
                 Unit
             }
@@ -500,14 +608,38 @@ object DouSettings {
                     try { reload() } catch (_: Throwable) {}
                 }
             }
+            // 本地 SharedPreferences 兜底：定期尝试通过 ContentProvider 或文件同步
+            if (p is SharedPreferences && p.javaClass.name.contains("SharedPreferencesImpl")) {
+                val now = System.currentTimeMillis()
+                if (now - lastProviderRefresh > PROVIDER_REFRESH_MS) {
+                    lastProviderRefresh = now
+                    if (tryInitFromProvider()) {
+                        prefs = ProviderPrefs()
+                        HookUtils.log("DouSettings: ContentProvider 可用，切换到实时模式")
+                    } else {
+                        syncFromModuleFile()
+                    }
+                }
+            }
             return p
         }
-        // 懒加载：运行时若 Context 已可用，尝试通过 ContentProvider 初始化
+        // 懒加载：运行时若 Context 已可用，尝试通过 ContentProvider 或本地 prefs 初始化
         if (tryInitFromProvider()) {
             prefs = ProviderPrefs()
             lastProviderRefresh = System.currentTimeMillis()
             return prefs!!
         }
+        // 尝试初始化抖音本地 SharedPreferences（localContext 此时可能已就绪）
+        try {
+            val ctx = localContext ?: com.xposed.doupp.util.ContextHelper.getContext()
+            if (ctx != null) {
+                val localSp = ctx.getSharedPreferences(LOCAL_PREFS_NAME, Context.MODE_PRIVATE)
+                prefs = localSp
+                lastProviderRefresh = System.currentTimeMillis()
+                syncFromModuleFile()
+                return prefs!!
+            }
+        } catch (_: Throwable) {}
         // 返回默认空 prefs，避免崩溃（下次调用会重试）
         if (!defaultLogged) {
             defaultLogged = true

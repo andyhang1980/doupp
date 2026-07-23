@@ -4,10 +4,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import com.xposed.doupp.ui.DouSettings
 
 /**
  * 保活前台服务。
@@ -17,6 +19,9 @@ import android.os.IBinder
  * provider 就已发布，抖音读取时无需唤醒，WakePathChecker 不会拦截。
  *
  * 因此本服务以前台服务形式常驻，保证 ContentProvider 始终可用，抖音能实时读取设置。
+ *
+ * 首次从抖音 hook 进程启动时（exported=true），立刻调用 DouSettings.init() 确保
+ * prefs 文件存在并设为 world-readable。
  */
 class KeepAliveService : Service() {
 
@@ -37,18 +42,43 @@ class KeepAliveService : Service() {
             }
         }
 
+        /**
+         * 从抖音 hook 进程启动本模块的 KeepAliveService（跨 UID 启动 exported service）。
+         * 使用显式 ComponentName 避免隐式 Intent 被 Android 11+ 限制。
+         */
+        fun startFromHook(context: Context) {
+            try {
+                val intent = Intent().apply {
+                    component = ComponentName(MODULE_PACKAGE, "$MODULE_PACKAGE.KeepAliveService")
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                com.xposed.doupp.util.HookUtils.log("KeepAliveService: startFromHook 成功")
+            } catch (t: Throwable) {
+                com.xposed.doupp.util.HookUtils.log("KeepAliveService: startFromHook 失败: ${t.message}")
+            }
+        }
+
         fun stop(context: Context) {
             try {
                 context.stopService(Intent(context, KeepAliveService::class.java))
             } catch (_: Throwable) {
             }
         }
+
+        private const val MODULE_PACKAGE = "com.xposed.doupp"
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        // 创建 prefs 文件并设为 world-readable（首次启动时由模块设置页调用 init，
+        // 但若用户从未打开设置页，此处兜底创建）
+        DouSettings.init(this)
         startForeground(NOTIF_ID, buildNotification())
     }
 

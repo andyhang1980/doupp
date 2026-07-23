@@ -34,6 +34,10 @@ class AutoPlayButtonHook : BaseHook {
         private const val PREFS_POS_X = "auto_play_btn_x"
         private const val PREFS_POS_Y = "auto_play_btn_y"
         private var periodicStarted = false
+        private val longPressedViews = java.util.WeakHashMap<View, Boolean>()
+        /** 仅本次 Activity 隐藏（不持久化，下次 onResume 自动恢复） */
+        @Volatile
+        private var sessionHide = false
     }
 
     override fun tag() = TAG
@@ -73,17 +77,11 @@ class AutoPlayButtonHook : BaseHook {
                     return@post
                 }
 
-                val hide = DouSettings.isAutoPlayHide()
-                val existing = content.findViewWithTag<View>(BTN_TAG)
-                HookUtils.log("$TAG: tryInject hide=$hide existing=${existing != null}")
-                if (hide) {
-                    if (existing != null) {
-                        content.removeView(existing)
-                        HookUtils.log("$TAG: 隐藏设置生效，移除按钮")
-                    }
-                    return@post
-                }
+                // 每次进入新 Activity 重置 session 隐藏（长按隐藏仅维持到当前 Activity 结束）
+                sessionHide = false
 
+                val existing = content.findViewWithTag<View>(BTN_TAG)
+                HookUtils.log("$TAG: tryInject sessionHide=$sessionHide existing=${existing != null}")
                 if (existing != null) return@post
 
                 val density = activity.resources.displayMetrics.density
@@ -137,6 +135,7 @@ class AutoPlayButtonHook : BaseHook {
             init {
                 isClickable = true
                 isFocusable = true
+                isLongClickable = true
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 background = createCircleBg(context, DouSettings.isAutoPlayEnabled())
                 val pad = (12 * density).toInt()
@@ -155,6 +154,7 @@ class AutoPlayButtonHook : BaseHook {
                         lastX = event.rawX
                         lastY = event.rawY
                         isDragging = false
+                        longPressedViews.put(this, false)
                         parent.requestDisallowInterceptTouchEvent(true)
                         return true
                     }
@@ -178,7 +178,9 @@ class AutoPlayButtonHook : BaseHook {
                             return true
                         }
                         parent.requestDisallowInterceptTouchEvent(false)
-                        performClick()
+                        if (longPressedViews.get(this) != true) {
+                            performClick()
+                        }
                         return true
                     }
                 }
@@ -191,6 +193,17 @@ class AutoPlayButtonHook : BaseHook {
                 val on = DouSettings.isAutoPlayEnabled()
                 HookUtils.showToast(context, if (on) "自动播放: 开" else "自动播放: 关")
                 HookUtils.log("$TAG: 自动播放切换为 $on")
+            }
+            btn.setOnLongClickListener {
+                longPressedViews.put(btn, true)
+                sessionHide = true
+                HookUtils.showToast(context, "悬浮按钮已隐藏（切换视频后恢复）")
+                HookUtils.log("$TAG: 长按 session 隐藏")
+                btn.post {
+                    val p = btn.parent as? ViewGroup
+                    p?.removeView(btn)
+                }
+                true
             }
         }
     }

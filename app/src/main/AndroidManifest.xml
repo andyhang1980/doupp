@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:icon="@mipmap/ic_launcher"
@@ -39,10 +40,20 @@
             android:authorities="com.xposed.doupp.settings"
             android:exported="true" />
 
+        <!-- 开机/更新自启动接收器：确保模块进程启动，创建 prefs 文件并注册 ContentProvider -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- 保活前台服务：常驻以保证 ContentProvider 随时可用（绕过小米 WakePathChecker 唤醒拦截） -->
         <service
             android:name=".KeepAliveService"
-            android:exported="false"
+            android:exported="true"
             android:foregroundServiceType="dataSync" />
 
         <!-- 图标预览页（开发期映射用，非入口） -->

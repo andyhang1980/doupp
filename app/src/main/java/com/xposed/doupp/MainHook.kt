@@ -20,6 +20,7 @@ import com.xposed.doupp.util.DexKitManager
 import com.xposed.doupp.util.HookUtils
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import android.content.Context
 
 /**
  * Dou+ - Xposed 模块入口
@@ -78,14 +79,20 @@ class MainHook : IXposedHookLoadPackage {
             tryInstallHooks(hooks, lpparam.classLoader, "立即安装")
 
             // 策略2: 注册延迟安装回调
-            ContextHelper.onApplicationReady { realClassLoader, _ ->
+            ContextHelper.onApplicationReady { realClassLoader, context ->
                 HookUtils.log("========== 延迟安装 Hook ==========")
+
+                // 设置抖音进程 Context（用于本地 prefs 兜底 / ContentProvider 跨进程读取）
+                DouSettings.setLocalContext(context)
 
                 // 重新加载配置
                 DouSettings.reload()
 
                 val delayedHooks = createHooks()
                 tryInstallHooks(delayedHooks, realClassLoader, "延迟安装")
+
+                // 尝试启动模块的 KeepAliveService（确保 ContentProvider 常驻）
+                KeepAliveService.startFromHook(context)
 
                 // 启动自动适配（延迟3秒，避免启动卡顿）
                 startAdaptationWithToast(realClassLoader)
