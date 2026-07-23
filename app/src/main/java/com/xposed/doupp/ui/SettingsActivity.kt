@@ -3,29 +3,25 @@ package com.xposed.doupp.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.preference.PreferenceActivity
+import android.preference.PreferenceFragment
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
-import androidx.preference.CheckBoxPreference
-import androidx.preference.EditTextPreference
-import androidx.preference.ListPreference
-import androidx.preference.Preference
-import androidx.preference.PreferenceFragmentCompat
-import androidx.preference.PreferenceScreen
 
-class SettingsActivity : AppCompatActivity() {
+class SettingsActivity : PreferenceActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        supportFragmentManager.beginTransaction()
+        fragmentManager.beginTransaction()
             .replace(android.R.id.content, SettingsFragment())
             .commit()
     }
 
-    class SettingsFragment : PreferenceFragmentCompat() {
+    class SettingsFragment : PreferenceFragment() {
 
-        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-            setPreferencesFromResource(com.xposed.doupp.R.xml.prefs, rootKey)
-            DouSettings.init(requireActivity())
+        override fun onCreate(savedInstanceState: Bundle?) {
+            super.onCreate(savedInstanceState)
+            addPreferencesFromResource(com.xposed.doupp.R.xml.prefs)
+            DouSettings.init(activity)
             bindPreferenceListeners()
             val sp = preferenceManager.sharedPreferences
             updateAdChildrenEnabled(sp?.getBoolean("remove_ad", true) ?: true)
@@ -39,7 +35,7 @@ class SettingsActivity : AppCompatActivity() {
 
         private fun updateFilterChildrenEnabled(enabled: Boolean) {
             for (key in filterChildKeys) {
-                findPreference<Preference>(key)?.isEnabled = enabled
+                findPreference(key)?.isEnabled = enabled
             }
         }
 
@@ -50,118 +46,59 @@ class SettingsActivity : AppCompatActivity() {
 
         private fun updateAdChildrenEnabled(enabled: Boolean) {
             for (key in adChildKeys) {
-                findPreference<Preference>(key)?.isEnabled = enabled
+                findPreference(key)?.isEnabled = enabled
+            }
+        }
+
+        private fun safePref(key: String, block: (Any) -> Unit) {
+            findPreference(key)?.setOnPreferenceChangeListener { _, newValue ->
+                try {
+                    block(newValue)
+                    true
+                } catch (t: Throwable) {
+                    android.util.Log.e("DouSettings", "pref $key error: ${t.message}", t)
+                    true
+                }
             }
         }
 
         private fun bindPreferenceListeners() {
-            findPreference<CheckBoxPreference>("download_video")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setDownloadVideo(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("download_music")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setDownloadMusic(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("download_image")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setDownloadImage(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("copy_text")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setCopyText(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("remove_ad")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    val on = newValue as Boolean
-                    DouSettings.setRemoveAd(on)
-                    updateAdChildrenEnabled(on)
-                    true
-                }
-            findPreference<CheckBoxPreference>("skip_splash_ad")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setSkipSplashAd(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("block_feed_keywords")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setBlockFeedKeywords(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("block_shopping")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setBlockShopping(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("hide_ad_labels")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setHideAdLabels(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("block_ad_sdk")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setBlockAdSdk(newValue as Boolean); true
-                }
-            findPreference<EditTextPreference>("ad_keywords")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setAdKeywords(newValue as String); true
-                }
-            findPreference<CheckBoxPreference>("block_hot_update")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setBlockHotUpdate(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("save_comment_media")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setSaveCommentMedia(newValue as Boolean); true
-                }
-            findPreference<EditTextPreference>("save_directory")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setSaveDirectory(newValue as String); true
-                }
-            findPreference<CheckBoxPreference>("video_filter")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    val on = newValue as Boolean
-                    DouSettings.setVideoFilterEnabled(on)
-                    updateFilterChildrenEnabled(on)
-                    true
-                }
-            findPreference<CheckBoxPreference>("filter_live")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setFilterLive(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("filter_image")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setFilterImage(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("filter_ad")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setFilterAd(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("filter_long_video")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setFilterLongVideo(newValue as Boolean); true
-                }
-            findPreference<ListPreference>("long_video_seconds")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setLongVideoSeconds((newValue as String).toInt()); true
-                }
-            findPreference<EditTextPreference>("filter_keywords")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setFilterKeywords(newValue as String); true
-                }
-            findPreference<ListPreference>("double_click_action")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setDoubleClickAction(newValue as String); true
-                }
-            findPreference<CheckBoxPreference>("auto_play_floating")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setAutoPlayFloating(newValue as Boolean); true
-                }
-            findPreference<CheckBoxPreference>("auto_play_hide")
-                ?.setOnPreferenceChangeListener { _, newValue ->
-                    DouSettings.setAutoPlayHide(newValue as Boolean); true
-                }
-            findPreference<Preference>("telegram")
-                ?.setOnPreferenceClickListener {
-                    openTelegram()
-                    true
-                }
+            safePref("download_video") { DouSettings.setDownloadVideo(it as Boolean) }
+            safePref("download_music") { DouSettings.setDownloadMusic(it as Boolean) }
+            safePref("download_image") { DouSettings.setDownloadImage(it as Boolean) }
+            safePref("copy_text") { DouSettings.setCopyText(it as Boolean) }
+            safePref("remove_ad") { v ->
+                val on = v as Boolean
+                DouSettings.setRemoveAd(on)
+                updateAdChildrenEnabled(on)
+            }
+            safePref("skip_splash_ad") { DouSettings.setSkipSplashAd(it as Boolean) }
+            safePref("block_feed_keywords") { DouSettings.setBlockFeedKeywords(it as Boolean) }
+            safePref("block_shopping") { DouSettings.setBlockShopping(it as Boolean) }
+            safePref("hide_ad_labels") { DouSettings.setHideAdLabels(it as Boolean) }
+            safePref("block_ad_sdk") { DouSettings.setBlockAdSdk(it as Boolean) }
+            safePref("ad_keywords") { DouSettings.setAdKeywords(it as String) }
+            safePref("block_hot_update") { DouSettings.setBlockHotUpdate(it as Boolean) }
+            safePref("save_comment_media") { DouSettings.setSaveCommentMedia(it as Boolean) }
+            safePref("save_directory") { DouSettings.setSaveDirectory(it as String) }
+            safePref("video_filter") { v ->
+                val on = v as Boolean
+                DouSettings.setVideoFilterEnabled(on)
+                updateFilterChildrenEnabled(on)
+            }
+            safePref("filter_live") { DouSettings.setFilterLive(it as Boolean) }
+            safePref("filter_image") { DouSettings.setFilterImage(it as Boolean) }
+            safePref("filter_ad") { DouSettings.setFilterAd(it as Boolean) }
+            safePref("filter_long_video") { DouSettings.setFilterLongVideo(it as Boolean) }
+            safePref("long_video_seconds") { DouSettings.setLongVideoSeconds((it as String).toInt()) }
+            safePref("filter_keywords") { DouSettings.setFilterKeywords(it as String) }
+            safePref("double_click_action") { DouSettings.setDoubleClickAction(it as String) }
+            safePref("auto_play_floating") { DouSettings.setAutoPlayFloating(it as Boolean) }
+            safePref("auto_play_hide") { DouSettings.setAutoPlayHide(it as Boolean) }
+            findPreference("telegram")?.setOnPreferenceClickListener {
+                openTelegram()
+                true
+            }
         }
 
         private fun openTelegram() {

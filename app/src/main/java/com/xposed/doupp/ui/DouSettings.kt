@@ -264,12 +264,10 @@ object DouSettings {
 
     private fun putBoolean(key: String, value: Boolean) {
         getPrefs().edit().putBoolean(key, value).apply()
-        share()
     }
 
     private fun putString(key: String, value: String) {
         getPrefs().edit().putString(key, value).apply()
-        share()
     }
 
     /**
