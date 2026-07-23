@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.preference.PreferenceActivity
 import android.preference.PreferenceFragment
 import android.widget.Toast
+import com.xposed.doupp.KeepAliveService
 
 class SettingsActivity : PreferenceActivity() {
 
@@ -54,6 +55,8 @@ class SettingsActivity : PreferenceActivity() {
             findPreference(key)?.setOnPreferenceChangeListener { _, newValue ->
                 try {
                     block(newValue)
+                    // 保持模块进程存活，让抖音能通过 ContentProvider 读取最新设置
+                    KeepAliveService.start(activity)
                     true
                 } catch (t: Throwable) {
                     android.util.Log.e("DouSettings", "pref $key error: ${t.message}", t)
