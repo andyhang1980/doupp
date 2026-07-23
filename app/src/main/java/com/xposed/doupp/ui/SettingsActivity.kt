@@ -3,43 +3,33 @@ package com.xposed.doupp.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.preference.PreferenceActivity
-import android.preference.PreferenceFragment
 import android.widget.Toast
-/**
- * Dou+ 设置页面
- *
- * 使用传统 PreferenceActivity + PreferenceFragment 实现。
- * 用户可通过 LSPosed 管理器或模块自带入口打开此页面。
- */
-class SettingsActivity : PreferenceActivity() {
+import androidx.appcompat.app.AppCompatActivity
+import androidx.preference.CheckBoxPreference
+import androidx.preference.EditTextPreference
+import androidx.preference.ListPreference
+import androidx.preference.Preference
+import androidx.preference.PreferenceFragmentCompat
+import androidx.preference.PreferenceScreen
+
+class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        fragmentManager.beginTransaction()
+        supportFragmentManager.beginTransaction()
             .replace(android.R.id.content, SettingsFragment())
             .commit()
     }
 
-    /**
-     * 设置 Fragment
-     */
-    class SettingsFragment : PreferenceFragment() {
+    class SettingsFragment : PreferenceFragmentCompat() {
 
-        override fun onCreate(savedInstanceState: Bundle?) {
-            super.onCreate(savedInstanceState)
-            addPreferencesFromResource(com.xposed.doupp.R.xml.prefs)
-
-            // 初始化设置管理
-            DouSettings.init(activity)
-
-            // 绑定偏好变更监听
+        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+            setPreferencesFromResource(com.xposed.doupp.R.xml.prefs, rootKey)
+            DouSettings.init(requireActivity())
             bindPreferenceListeners()
-
-            // 初始化总开关→子开关的可用性
-            val _sp = preferenceManager.sharedPreferences
-            updateAdChildrenEnabled(_sp?.getBoolean("remove_ad", true) ?: true)
-            updateFilterChildrenEnabled(_sp?.getBoolean("video_filter", false) ?: false)
+            val sp = preferenceManager.sharedPreferences
+            updateAdChildrenEnabled(sp?.getBoolean("remove_ad", true) ?: true)
+            updateFilterChildrenEnabled(sp?.getBoolean("video_filter", false) ?: false)
         }
 
         private val filterChildKeys = arrayOf(
@@ -49,7 +39,7 @@ class SettingsActivity : PreferenceActivity() {
 
         private fun updateFilterChildrenEnabled(enabled: Boolean) {
             for (key in filterChildKeys) {
-                findPreference(key)?.isEnabled = enabled
+                findPreference<Preference>(key)?.isEnabled = enabled
             }
         }
 
@@ -60,106 +50,118 @@ class SettingsActivity : PreferenceActivity() {
 
         private fun updateAdChildrenEnabled(enabled: Boolean) {
             for (key in adChildKeys) {
-                findPreference(key)?.isEnabled = enabled
+                findPreference<Preference>(key)?.isEnabled = enabled
             }
         }
 
         private fun bindPreferenceListeners() {
-            // 下载功能
-            findPreference("download_video")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setDownloadVideo(newValue as Boolean); true
-            }
-            findPreference("download_music")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setDownloadMusic(newValue as Boolean); true
-            }
-            findPreference("download_image")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setDownloadImage(newValue as Boolean); true
-            }
-            findPreference("copy_text")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setCopyText(newValue as Boolean); true
-            }
-
-            // 增强功能
-            findPreference("remove_ad")?.setOnPreferenceChangeListener { _, newValue ->
-                val on = newValue as Boolean
-                DouSettings.setRemoveAd(on)
-                updateAdChildrenEnabled(on)
-                true
-            }
-            findPreference("skip_splash_ad")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setSkipSplashAd(newValue as Boolean); true
-            }
-            findPreference("block_feed_keywords")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setBlockFeedKeywords(newValue as Boolean); true
-            }
-            findPreference("block_shopping")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setBlockShopping(newValue as Boolean); true
-            }
-            findPreference("hide_ad_labels")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setHideAdLabels(newValue as Boolean); true
-            }
-            findPreference("block_ad_sdk")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setBlockAdSdk(newValue as Boolean); true
-            }
-            findPreference("ad_keywords")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setAdKeywords(newValue as String); true
-            }
-            findPreference("block_hot_update")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setBlockHotUpdate(newValue as Boolean); true
-            }
-            // 评论区
-            findPreference("save_comment_media")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setSaveCommentMedia(newValue as Boolean); true
-            }
-
-            // 存储
-            findPreference("save_directory")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setSaveDirectory(newValue as String); true
-            }
-            // 视频过滤
-            findPreference("video_filter")?.setOnPreferenceChangeListener { _, newValue ->
-                val on = newValue as Boolean
-                DouSettings.setVideoFilterEnabled(on)
-                updateFilterChildrenEnabled(on)
-                true
-            }
-            findPreference("filter_live")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setFilterLive(newValue as Boolean); true
-            }
-            findPreference("filter_image")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setFilterImage(newValue as Boolean); true
-            }
-            findPreference("filter_ad")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setFilterAd(newValue as Boolean); true
-            }
-            findPreference("filter_long_video")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setFilterLongVideo(newValue as Boolean); true
-            }
-            findPreference("long_video_seconds")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setLongVideoSeconds((newValue as String).toInt()); true
-            }
-            findPreference("filter_keywords")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setFilterKeywords(newValue as String); true
-            }
-
-            // 双击行为
-            findPreference("double_click_action")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setDoubleClickAction(newValue as String); true
-            }
-
-            // 自动播放
-            findPreference("auto_play_floating")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setAutoPlayFloating(newValue as Boolean); true
-            }
-            findPreference("auto_play_hide")?.setOnPreferenceChangeListener { _, newValue ->
-                DouSettings.setAutoPlayHide(newValue as Boolean); true
-            }
-
-            // 电报群组
-            findPreference("telegram")?.setOnPreferenceClickListener {
-                openTelegram()
-                true
-            }
+            findPreference<CheckBoxPreference>("download_video")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setDownloadVideo(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("download_music")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setDownloadMusic(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("download_image")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setDownloadImage(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("copy_text")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setCopyText(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("remove_ad")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    val on = newValue as Boolean
+                    DouSettings.setRemoveAd(on)
+                    updateAdChildrenEnabled(on)
+                    true
+                }
+            findPreference<CheckBoxPreference>("skip_splash_ad")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setSkipSplashAd(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("block_feed_keywords")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setBlockFeedKeywords(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("block_shopping")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setBlockShopping(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("hide_ad_labels")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setHideAdLabels(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("block_ad_sdk")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setBlockAdSdk(newValue as Boolean); true
+                }
+            findPreference<EditTextPreference>("ad_keywords")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setAdKeywords(newValue as String); true
+                }
+            findPreference<CheckBoxPreference>("block_hot_update")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setBlockHotUpdate(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("save_comment_media")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setSaveCommentMedia(newValue as Boolean); true
+                }
+            findPreference<EditTextPreference>("save_directory")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setSaveDirectory(newValue as String); true
+                }
+            findPreference<CheckBoxPreference>("video_filter")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    val on = newValue as Boolean
+                    DouSettings.setVideoFilterEnabled(on)
+                    updateFilterChildrenEnabled(on)
+                    true
+                }
+            findPreference<CheckBoxPreference>("filter_live")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setFilterLive(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("filter_image")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setFilterImage(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("filter_ad")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setFilterAd(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("filter_long_video")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setFilterLongVideo(newValue as Boolean); true
+                }
+            findPreference<ListPreference>("long_video_seconds")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setLongVideoSeconds((newValue as String).toInt()); true
+                }
+            findPreference<EditTextPreference>("filter_keywords")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setFilterKeywords(newValue as String); true
+                }
+            findPreference<ListPreference>("double_click_action")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setDoubleClickAction(newValue as String); true
+                }
+            findPreference<CheckBoxPreference>("auto_play_floating")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setAutoPlayFloating(newValue as Boolean); true
+                }
+            findPreference<CheckBoxPreference>("auto_play_hide")
+                ?.setOnPreferenceChangeListener { _, newValue ->
+                    DouSettings.setAutoPlayHide(newValue as Boolean); true
+                }
+            findPreference<Preference>("telegram")
+                ?.setOnPreferenceClickListener {
+                    openTelegram()
+                    true
+                }
         }
 
         private fun openTelegram() {
@@ -171,6 +173,5 @@ class SettingsActivity : PreferenceActivity() {
                 Toast.makeText(activity, "无法打开电报链接", Toast.LENGTH_SHORT).show()
             }
         }
-
     }
 }
