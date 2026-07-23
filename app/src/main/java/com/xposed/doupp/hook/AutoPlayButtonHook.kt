@@ -128,9 +128,11 @@ class AutoPlayButtonHook : BaseHook {
 
     private fun createAutoPlayButton(context: Context, density: Float): ImageView {
         return object : ImageView(context) {
+            private var downX = 0f
+            private var downY = 0f
             private var lastX = 0f
             private var lastY = 0f
-            private var isDragging = false
+            private val dragThreshold = (density * 20 + 0.5f).toInt()
 
             init {
                 isClickable = true
@@ -151,9 +153,10 @@ class AutoPlayButtonHook : BaseHook {
 
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
+                        downX = event.rawX
+                        downY = event.rawY
                         lastX = event.rawX
                         lastY = event.rawY
-                        isDragging = false
                         longPressedViews.put(this, false)
                         parent.requestDisallowInterceptTouchEvent(true)
                         return true
@@ -161,31 +164,22 @@ class AutoPlayButtonHook : BaseHook {
                     MotionEvent.ACTION_MOVE -> {
                         val dx = event.rawX - lastX
                         val dy = event.rawY - lastY
-                        if (Math.abs(dx) > 20 || Math.abs(dy) > 20) isDragging = true
-                        if (isDragging) {
-                            lp.leftMargin = (lp.leftMargin + dx).toInt().coerceIn(0, parent.width - width)
-                            lp.topMargin = (lp.topMargin + dy).toInt().coerceIn(0, parent.height - height)
-                            layoutParams = lp
-                            lastX = event.rawX
-                            lastY = event.rawY
-                        }
+                        lp.leftMargin = (lp.leftMargin + dx).toInt().coerceIn(0, parent.width - width)
+                        lp.topMargin = (lp.topMargin + dy).toInt().coerceIn(0, parent.height - height)
+                        layoutParams = lp
+                        lastX = event.rawX
+                        lastY = event.rawY
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (isDragging) {
+                        val totalDx = event.rawX - downX
+                        val totalDy = event.rawY - downY
+                        if (Math.abs(totalDx) > dragThreshold || Math.abs(totalDy) > dragThreshold) {
                             savePos(context, lp.leftMargin, lp.topMargin)
-                            parent.requestDisallowInterceptTouchEvent(false)
-                            return true
+                        } else if (longPressedViews.get(this) != true) {
+                            performClick()
                         }
                         parent.requestDisallowInterceptTouchEvent(false)
-                        if (longPressedViews.get(this) != true) {
-                            // 直接处理点击，不依赖 performClick/setOnClickListener
-                            DouSettings.setAutoPlay(!DouSettings.isAutoPlayEnabled())
-                            updateState(this)
-                            val on = DouSettings.isAutoPlayEnabled()
-                            HookUtils.showToast(context, if (on) "自动播放: 开" else "自动播放: 关")
-                            HookUtils.log("$TAG: 自动播放切换为 $on")
-                        }
                         return true
                     }
                     MotionEvent.ACTION_CANCEL -> {
@@ -197,10 +191,11 @@ class AutoPlayButtonHook : BaseHook {
             }
         }.also { btn ->
             btn.setOnClickListener {
-                // 兜底（正常情况下走 onTouchEvent ACTION_UP）
                 DouSettings.setAutoPlay(!DouSettings.isAutoPlayEnabled())
                 updateState(btn)
-                HookUtils.log("$TAG: setOnClickListener 触发")
+                val on = DouSettings.isAutoPlayEnabled()
+                HookUtils.showToast(context, if (on) "自动播放: 开" else "自动播放: 关")
+                HookUtils.log("$TAG: 自动播放切换为 $on")
             }
             btn.setOnLongClickListener {
                 longPressedViews.put(btn, true)
