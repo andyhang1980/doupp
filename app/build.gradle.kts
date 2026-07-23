@@ -17,7 +17,6 @@ android {
 
     signingConfigs {
         create("release") {
-            // 从环境变量读取签名信息，CI 中通过 secrets 注入
             storeFile = file(System.getenv("KEYSTORE_FILE") ?: "keystore.jks")
             storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
             keyAlias = System.getenv("KEY_ALIAS") ?: ""
@@ -32,7 +31,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 有 keystore 时签名，无则用 debug 签名
             val hasKeystore = System.getenv("KEYSTORE_FILE") != null
             if (hasKeystore) {
                 signingConfig = signingConfigs.getByName("release")

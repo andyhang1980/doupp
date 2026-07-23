@@ -27,6 +27,7 @@ class SettingsActivity : PreferenceActivity() {
             val sp = preferenceManager.sharedPreferences
             updateAdChildrenEnabled(sp?.getBoolean("remove_ad", true) ?: true)
             updateFilterChildrenEnabled(sp?.getBoolean("video_filter", false) ?: false)
+            updateAutoPlayChildrenEnabled(sp?.getBoolean("auto_play", false) ?: false)
         }
 
         private val filterChildKeys = arrayOf(
@@ -55,13 +56,22 @@ class SettingsActivity : PreferenceActivity() {
             findPreference(key)?.setOnPreferenceChangeListener { _, newValue ->
                 try {
                     block(newValue)
-                    // 保持模块进程存活，让抖音能通过 ContentProvider 读取最新设置
                     KeepAliveService.start(activity)
                     true
                 } catch (t: Throwable) {
                     android.util.Log.e("DouSettings", "pref $key error: ${t.message}", t)
                     true
                 }
+            }
+        }
+
+        private val autoPlayChildKeys = arrayOf(
+            "auto_play_floating", "auto_play_hide"
+        )
+
+        private fun updateAutoPlayChildrenEnabled(enabled: Boolean) {
+            for (key in autoPlayChildKeys) {
+                findPreference(key)?.isEnabled = enabled
             }
         }
 
@@ -96,7 +106,11 @@ class SettingsActivity : PreferenceActivity() {
             safePref("long_video_seconds") { DouSettings.setLongVideoSeconds((it as String).toInt()) }
             safePref("filter_keywords") { DouSettings.setFilterKeywords(it as String) }
             safePref("double_click_action") { DouSettings.setDoubleClickAction(it as String) }
-            safePref("auto_play") { DouSettings.setAutoPlay(it as Boolean) }
+            safePref("auto_play") { v ->
+                val on = v as Boolean
+                DouSettings.setAutoPlay(on)
+                updateAutoPlayChildrenEnabled(on)
+            }
             safePref("auto_play_floating") { DouSettings.setAutoPlayFloating(it as Boolean) }
             safePref("auto_play_hide") { DouSettings.setAutoPlayHide(it as Boolean) }
             findPreference("telegram")?.setOnPreferenceClickListener {
