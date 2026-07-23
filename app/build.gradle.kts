@@ -11,8 +11,8 @@ android {
         applicationId = "com.xposed.doupp"
         minSdk = 28
         targetSdk = 34
-        versionCode = 5
-        versionName = "3.0.2"
+        versionCode = 6
+        versionName = "3.0.3"
     }
 
     signingConfigs {
