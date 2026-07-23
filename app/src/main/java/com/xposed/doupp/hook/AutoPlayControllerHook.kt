@@ -58,15 +58,28 @@ class AutoPlayControllerHook : BaseHook {
         @Volatile private var kevaAutoPlayKey: Any? = null
         /** 上一次同步到 Keva 的值，避免反复写入 */
         @Volatile private var lastKevaSync: Boolean? = null
+        /** enabled() 结果缓存 TTL */
+        @Volatile private var lastEnabled: Boolean = true
+        @Volatile private var lastEnabledTime: Long = 0L
+        private const val ENABLED_CACHE_MS = 200L
 
         // triggerMoveToNext 供视频过滤（VideoFilterHook）跳过使用
     private fun enabled(): Boolean {
+        val now = System.currentTimeMillis()
+        // 200ms 内复用上一个结果，避免高频反射开销
+        if (now - lastEnabledTime < ENABLED_CACHE_MS) return lastEnabled
         val autoPlay = DouSettings.isAutoPlayEnabled()
-        val live = isCurrentAwemeLive()
-        val result = autoPlay && !live
         if (!autoPlay) {
-            HookUtils.log("$TAG: enabled=false (autoPlay=$autoPlay, live=$live)")
+            lastEnabled = false
+            lastEnabledTime = now
+            HookUtils.log("$TAG: enabled=false (autoPlay=$autoPlay)")
+            syncKevaIfNeeded(false)
+            return false
         }
+        val live = isCurrentAwemeLive()
+        val result = !live
+        lastEnabled = result
+        lastEnabledTime = now
         syncKevaIfNeeded(result)
         return result
     }

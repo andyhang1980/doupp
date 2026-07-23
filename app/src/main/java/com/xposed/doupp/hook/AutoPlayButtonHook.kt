@@ -33,7 +33,6 @@ class AutoPlayButtonHook : BaseHook {
         private val mainHandler = Handler(Looper.getMainLooper())
         private const val PREFS_POS_X = "auto_play_btn_x"
         private const val PREFS_POS_Y = "auto_play_btn_y"
-        private var lastHideState: Boolean? = null
         private var periodicStarted = false
     }
 
@@ -49,31 +48,11 @@ class AutoPlayButtonHook : BaseHook {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val activity = param.thisObject as? Activity ?: return
                     mainHandler.postDelayed({ tryInject(activity) }, 600)
-                    startPeriodicCheck(activity)
                 }
             })
             installed = true
             HookUtils.log("$TAG: Activity.onResume Hook 已安装")
         }
-    }
-
-    private var periodicActivity: Activity? = null
-
-    private fun startPeriodicCheck(activity: Activity) {
-        if (periodicStarted) return
-        periodicStarted = true
-        periodicActivity = activity
-        mainHandler.post(object : Runnable {
-            override fun run() {
-                val a = periodicActivity
-                if (a == null || a.isFinishing) {
-                    periodicStarted = false
-                    return
-                }
-                tryInject(a)
-                mainHandler.postDelayed(this, 2000)
-            }
-        })
     }
 
     private fun isFeedActivity(activity: Activity): Boolean {
