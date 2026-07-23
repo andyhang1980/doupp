@@ -418,28 +418,8 @@ class AutoPlayControllerHook : BaseHook {
                 } catch (_: Throwable) {}
             }
 
-            // Hook 所有 ()Z 方法
-            for (m in clazz.declaredMethods) {
-                val sig = "${m.name}(${m.parameterTypes.joinToString(",")})${m.returnType.simpleName}"
-                try {
-                    if (m.returnType == Boolean::class.javaPrimitiveType && m.parameterTypes.isEmpty()) {
-                        if (m.name == keyMethod) continue // 已 hook
-                        m.isAccessible = true
-                        XposedBridge.hookMethod(m, object : XC_MethodHook() {
-                            override fun beforeHookedMethod(param: MethodHookParam) {
-                                val v = enabled()
-                                if (!v) HookUtils.log("$TAG: $cName.$sig -> false")
-                                param.result = v
-                            }
-                            override fun afterHookedMethod(param: MethodHookParam) {
-                                param.result = enabled()
-                            }
-                        })
-                        hooked.add("$cName.$sig")
-                        HookUtils.log("$TAG: hook $cName.$sig ok")
-                    }
-                } catch (_: Throwable) {}
-            }
+            // 不 Hook 其他 ()Z 方法 —— 只 Hook 明确引用 auto_play_key 的方法，
+            // 避免误改播放进度检测等方法的返回值导致未播完就跳转
             // Hook 所有构造器（诊断）
             for (ctor in clazz.declaredConstructors) {
                 try {
