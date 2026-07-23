@@ -261,18 +261,15 @@ class AutoPlayControllerHook : BaseHook {
             HookUtils.log("$TAG: 结构识别 hN1=${structure.hN1}, jN1=${structure.jN1}, gN1=${structure.gN1}, e=${structure.eField}")
             eFieldName = structure.eField
 
-            // hN1(): isAutoPlayEnabled（用户开关）
+            // 只 Hook hN1() 用户开关——不 Hook 构造器（避免 postValue 触发过早自动播放）
+            // 不 Hook jN1()（服务端总开关，保留对时机的控制）
+            // 不 Hook 其他候选类（避免误改播放进度检测方法）
             hookBooleanMethod(clazz, structure.hN1)
-            // jN1(): static 功能总开关 —— 不 Hook，保留服务端对时机的控制（如播完才触发）
             // hookBooleanMethod(clazz, structure.jN1)
-            // 构造后把开关 LiveData 置为 true
-            hookConstructor(clazz, structure.gN1)
+            // hookConstructor(clazz, structure.gN1)
 
-            // 初始化 Keva 缓存，写入 native 存储（覆盖另类路径）
+            // 尝试初始化 Keva 缓存（仅用于兜底同步，不依赖其成功）
             initKevaCache(classLoader)
-
-            // 也 Hook 其它 DexKit 候选类（自动播放路径可能不经过 ViewModel）
-            hookOtherAutoPlayCandidates(classLoader, clazz.name)
 
             if (hooked.isNotEmpty()) {
                 installed = true
