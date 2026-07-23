@@ -64,6 +64,16 @@ class AutoPlayControllerHook : BaseHook {
         private const val ENABLED_CACHE_MS = 200L
 
         // triggerMoveToNext 供视频过滤（VideoFilterHook）跳过使用
+        /** 当前视频播放起始时间（构造器 Hook 中更新） */
+        @Volatile
+        private var videoStartTime = System.currentTimeMillis()
+
+        /** 通知 AutoPlayController 新视频已开始（重置计时器） */
+        @JvmStatic
+        fun onVideoStarted() {
+            videoStartTime = System.currentTimeMillis()
+        }
+
     private fun enabled(): Boolean {
         val now = System.currentTimeMillis()
         // 200ms 内复用上一个结果，避免高频反射开销
@@ -77,11 +87,25 @@ class AutoPlayControllerHook : BaseHook {
             return false
         }
         val live = isCurrentAwemeLive()
-        val result = !live
-        lastEnabled = result
+        if (live) {
+            lastEnabled = false
+            lastEnabledTime = now
+            return false
+        }
+        // 进度保护：视频播完 70% 后才允许自动连播，避免早跳
+        val dur = MediaCache.getContentDurationSec()
+        if (dur != null && dur > 3.0) {
+            val elapsed = (now - videoStartTime) / 1000.0
+            if (elapsed < dur * 0.7) {
+                lastEnabled = false
+                lastEnabledTime = now
+                return false
+            }
+        }
+        lastEnabled = true
         lastEnabledTime = now
-        syncKevaIfNeeded(result)
-        return result
+        syncKevaIfNeeded(true)
+        return true
     }
 
     private fun syncKevaIfNeeded(value: Boolean) {
@@ -261,12 +285,11 @@ class AutoPlayControllerHook : BaseHook {
             HookUtils.log("$TAG: 结构识别 hN1=${structure.hN1}, jN1=${structure.jN1}, gN1=${structure.gN1}, e=${structure.eField}")
             eFieldName = structure.eField
 
-            // 只 Hook hN1() 用户开关——不 Hook 构造器（避免 postValue 触发过早自动播放）
-            // 不 Hook jN1()（服务端总开关，保留对时机的控制）
-            // 不 Hook 其他候选类（避免误改播放进度检测方法）
+            // Hook hN1() 和 jN1()，enabled() 内含进度比检查（播完 70% 才返回 true）
             hookBooleanMethod(clazz, structure.hN1)
-            // hookBooleanMethod(clazz, structure.jN1)
-            // hookConstructor(clazz, structure.gN1)
+            hookBooleanMethod(clazz, structure.jN1)
+            // 构造后把开关 LiveData 置为 enabled()（带进度判断的 enabled()，不会早跳）
+            hookConstructor(clazz, structure.gN1)
 
             // 尝试初始化 Keva 缓存（仅用于兜底同步，不依赖其成功）
             initKevaCache(classLoader)
