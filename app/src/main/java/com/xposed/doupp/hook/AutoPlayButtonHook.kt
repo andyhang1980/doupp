@@ -33,6 +33,8 @@ class AutoPlayButtonHook : BaseHook {
         private val mainHandler = Handler(Looper.getMainLooper())
         private const val PREFS_POS_X = "auto_play_btn_x"
         private const val PREFS_POS_Y = "auto_play_btn_y"
+        private var lastHideState: Boolean? = null
+        private var periodicStarted = false
     }
 
     override fun tag() = TAG
@@ -47,11 +49,93 @@ class AutoPlayButtonHook : BaseHook {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val activity = param.thisObject as? Activity ?: return
                     mainHandler.postDelayed({ tryInject(activity) }, 600)
+                    startPeriodicCheck(activity)
                 }
             })
             installed = true
             HookUtils.log("$TAG: Activity.onResume Hook 已安装")
         }
+    }
+
+    private var periodicActivity: Activity? = null
+
+    private fun startPeriodicCheck(activity: Activity) {
+        if (periodicStarted) return
+        periodicStarted = true
+        periodicActivity = activity
+        mainHandler.post(object : Runnable {
+            override fun run() {
+                val a = periodicActivity
+                if (a == null || a.isFinishing) {
+                    periodicStarted = false
+                    return
+                }
+                try {
+                    val decor = a.window?.decorView as? ViewGroup ?: return
+                    val content = decor.findViewById<ViewGroup>(android.R.id.content) ?: return
+
+                    if (!isFeedActivity(a)) {
+                        content.findViewWithTag<View>(BTN_TAG)?.let { content.removeView(it) }
+                        mainHandler.postDelayed(this, 3000)
+                        return
+                    }
+
+                    val hide = DouSettings.isAutoPlayHide()
+                    val existing = content.findViewWithTag<View>(BTN_TAG)
+
+                    if (hide) {
+                        if (existing != null) {
+                            content.removeView(existing)
+                            HookUtils.log("$TAG: 隐藏设置生效，移除按钮")
+                        }
+                        mainHandler.postDelayed(this, 3000)
+                        return
+                    }
+
+                    // hide=false 且按钮不存在则注入
+                    if (existing == null) {
+                        val density = a.resources.displayMetrics.density
+                        val btnSize = (48 * density).toInt()
+                        val btn = createAutoPlayButton(a, density)
+                        btn.tag = BTN_TAG
+
+                        val screenW = if (content.width > 0) content.width else decor.width
+                        val screenH = if (content.height > 0) content.height else decor.height
+
+                        val lp = FrameLayout.LayoutParams(btnSize, btnSize)
+                        if (DouSettings.isAutoPlayFloating()) {
+                            val savedX = getSavedPosX(a)
+                            val savedY = getSavedPosY(a)
+                            if (savedX >= 0 && savedY >= 0 && savedX + btnSize <= screenW && savedY + btnSize <= screenH) {
+                                lp.leftMargin = savedX
+                                lp.topMargin = savedY
+                                lp.gravity = Gravity.TOP or Gravity.START
+                            } else {
+                                val defaultX = (screenW * 0.92 - btnSize / 2).toInt()
+                                val defaultY = (screenH * 0.44 - btnSize * 1.5).toInt()
+                                lp.leftMargin = defaultX.coerceIn(0, screenW - btnSize)
+                                lp.topMargin = defaultY.coerceIn(0, screenH - btnSize)
+                                lp.gravity = Gravity.TOP or Gravity.START
+                            }
+                        } else {
+                            val headCenterX = 0.92
+                            val headTopY = 0.44
+                            val gap = (6 * density).toInt()
+                            val btnX = (screenW * headCenterX - btnSize / 2).toInt()
+                            val btnY = (screenH * headTopY - btnSize - gap).toInt()
+                            lp.gravity = Gravity.TOP or Gravity.END
+                            lp.topMargin = maxOf(0, btnY)
+                            lp.marginEnd = maxOf(0, screenW - btnX - btnSize)
+                        }
+
+                        content.addView(btn, lp)
+                        HookUtils.log("$TAG: 周期性检查注入按钮 (hide=false)")
+                    }
+                } catch (_: Throwable) {
+                }
+                mainHandler.postDelayed(this, 3000)
+            }
+        })
     }
 
     private fun isFeedActivity(activity: Activity): Boolean {
