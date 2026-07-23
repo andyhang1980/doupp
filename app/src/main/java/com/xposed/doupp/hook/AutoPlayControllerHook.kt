@@ -261,10 +261,10 @@ class AutoPlayControllerHook : BaseHook {
             HookUtils.log("$TAG: 结构识别 hN1=${structure.hN1}, jN1=${structure.jN1}, gN1=${structure.gN1}, e=${structure.eField}")
             eFieldName = structure.eField
 
-            // hN1(): isAutoPlayEnabled
+            // hN1(): isAutoPlayEnabled（用户开关）
             hookBooleanMethod(clazz, structure.hN1)
-            // jN1(): static 功能总开关
-            hookBooleanMethod(clazz, structure.jN1)
+            // jN1(): static 功能总开关 —— 不 Hook，保留服务端对时机的控制（如播完才触发）
+            // hookBooleanMethod(clazz, structure.jN1)
             // 构造后把开关 LiveData 置为 true
             hookConstructor(clazz, structure.gN1)
 

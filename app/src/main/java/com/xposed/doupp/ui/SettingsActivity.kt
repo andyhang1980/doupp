@@ -96,6 +96,7 @@ class SettingsActivity : PreferenceActivity() {
             safePref("long_video_seconds") { DouSettings.setLongVideoSeconds((it as String).toInt()) }
             safePref("filter_keywords") { DouSettings.setFilterKeywords(it as String) }
             safePref("double_click_action") { DouSettings.setDoubleClickAction(it as String) }
+            safePref("auto_play") { DouSettings.setAutoPlay(it as Boolean) }
             safePref("auto_play_floating") { DouSettings.setAutoPlayFloating(it as Boolean) }
             safePref("auto_play_hide") { DouSettings.setAutoPlayHide(it as Boolean) }
             findPreference("telegram")?.setOnPreferenceClickListener {

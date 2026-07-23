@@ -114,11 +114,14 @@
 
     <!-- 自动播放 -->
     <string name="category_auto_play">自动播放</string>
+    <string name="pref_auto_play_title">自动播放</string>
+    <string name="pref_auto_play_summary">开启后视频自动连续播放</string>
+
     <string name="pref_auto_play_floating_title">悬浮拖动</string>
     <string name="pref_auto_play_floating_summary">开启后播放页自动播放按钮可自由拖动位置</string>
 
     <string name="pref_auto_play_hide_title">隐藏按钮</string>
-    <string name="pref_auto_play_hide_summary">隐藏播放页的自动播放按钮（不影响功能）</string>
+    <string name="pref_auto_play_hide_summary">隐藏播放页的自动播放按钮</string>
 
     <!-- 关于/社区 -->
     <string name="category_about">关于</string>

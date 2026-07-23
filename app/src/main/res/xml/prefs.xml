@@ -171,6 +171,12 @@
     <PreferenceCategory android:title="@string/category_auto_play">
 
         <CheckBoxPreference
+            android:key="auto_play"
+            android:title="@string/pref_auto_play_title"
+            android:summary="@string/pref_auto_play_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
             android:key="auto_play_floating"
             android:title="@string/pref_auto_play_floating_title"
             android:summary="@string/pref_auto_play_floating_summary"
