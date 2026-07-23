@@ -161,7 +161,7 @@ class AutoPlayButtonHook : BaseHook {
                     MotionEvent.ACTION_MOVE -> {
                         val dx = event.rawX - lastX
                         val dy = event.rawY - lastY
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) isDragging = true
+                        if (Math.abs(dx) > 20 || Math.abs(dy) > 20) isDragging = true
                         if (isDragging) {
                             lp.leftMargin = (lp.leftMargin + dx).toInt().coerceIn(0, parent.width - width)
                             lp.topMargin = (lp.topMargin + dy).toInt().coerceIn(0, parent.height - height)
@@ -179,20 +179,28 @@ class AutoPlayButtonHook : BaseHook {
                         }
                         parent.requestDisallowInterceptTouchEvent(false)
                         if (longPressedViews.get(this) != true) {
-                            performClick()
+                            // 直接处理点击，不依赖 performClick/setOnClickListener
+                            DouSettings.setAutoPlay(!DouSettings.isAutoPlayEnabled())
+                            updateState(this)
+                            val on = DouSettings.isAutoPlayEnabled()
+                            HookUtils.showToast(context, if (on) "自动播放: 开" else "自动播放: 关")
+                            HookUtils.log("$TAG: 自动播放切换为 $on")
                         }
                         return true
                     }
+                    MotionEvent.ACTION_CANCEL -> {
+                        parent.requestDisallowInterceptTouchEvent(false)
+                        return true
+                    }
                 }
-                return super.onTouchEvent(event)
+                return true
             }
         }.also { btn ->
             btn.setOnClickListener {
+                // 兜底（正常情况下走 onTouchEvent ACTION_UP）
                 DouSettings.setAutoPlay(!DouSettings.isAutoPlayEnabled())
                 updateState(btn)
-                val on = DouSettings.isAutoPlayEnabled()
-                HookUtils.showToast(context, if (on) "自动播放: 开" else "自动播放: 关")
-                HookUtils.log("$TAG: 自动播放切换为 $on")
+                HookUtils.log("$TAG: setOnClickListener 触发")
             }
             btn.setOnLongClickListener {
                 longPressedViews.put(btn, true)
