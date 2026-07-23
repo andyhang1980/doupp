@@ -80,8 +80,16 @@ class AutoPlayButtonHook : BaseHook {
                 // 每次进入新 Activity 重置 session 隐藏（长按隐藏仅维持到当前 Activity 结束）
                 sessionHide = false
 
+                val hide = DouSettings.isAutoPlayHide()
                 val existing = content.findViewWithTag<View>(BTN_TAG)
-                HookUtils.log("$TAG: tryInject sessionHide=$sessionHide existing=${existing != null}")
+                HookUtils.log("$TAG: tryInject hide=$hide sessionHide=$sessionHide existing=${existing != null}")
+                if (hide) {
+                    if (existing != null) {
+                        content.removeView(existing)
+                        HookUtils.log("$TAG: 隐藏设置生效，移除按钮")
+                    }
+                    return@post
+                }
                 if (existing != null) return@post
 
                 val density = activity.resources.displayMetrics.density
