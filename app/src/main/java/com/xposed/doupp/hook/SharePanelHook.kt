@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.ClassFinder
+import com.xposed.doupp.util.DexKitManager
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.IconRes
 import com.xposed.doupp.util.MediaCache
@@ -63,9 +64,14 @@ class SharePanelHook : BaseHook {
                 private const val ICON_COPY_TEXT     = "dyxs_06"
                 private const val ICON_SETTINGS      = "gear" // 用代码绘制的齿轮，避免素材图标观感差
 
-        /** 抖音分享面板相关类名特征 */
-        private val SHARE_PANEL_CLASS_KEYWORDS = arrayOf(
+        /** 抖音分享面板相关类名特征（运行时动态追加） */
+        private val SHARE_PANEL_CLASS_KEYWORDS = mutableListOf(
             "SharePanelDialog",
+            "CommonShareDialog",
+            "NormalShareDialog",
+            "ShareBottomListDialog",
+            "BottomSheetDeleteDialog",
+            "BaseBottomShareDialog",
             "BottomSheetSharePanel",
             "SharePanelFragment",
             "WithPadSharePanelDialog",
@@ -74,6 +80,7 @@ class SharePanelHook : BaseHook {
             "NewSharePanelDialog",
             "SideslipSharePanel",
             "ShareDialog",
+            "ShareQrDialog",
             // 新版抖音 39.70+ R8 混淆
             "share_bottom_sheet",
             "C0994",  // yyds 分享面板处理类
@@ -97,8 +104,35 @@ class SharePanelHook : BaseHook {
 
     override fun isInstalled(): Boolean = installed
 
+    /**
+     * 通过 DexKit 动态发现分享面板类名，补充到关键词列表。
+     */
+    private fun discoverSharePanelClasses() {
+        try {
+            val candidates = DexKitManager.findClassesByStrings(
+                listOf("share", "panel"),
+                listOf("com.ss.android.ugc.aweme")
+            )
+            var added = 0
+            for (name in candidates) {
+                val short = name.substringAfterLast('.')
+                if (short.length in 5..60 && SHARE_PANEL_CLASS_KEYWORDS.none { short.contains(it) } && (short.contains("Dialog") || short.contains("Panel") || short.contains("Share"))) {
+                    SHARE_PANEL_CLASS_KEYWORDS.add(short)
+                    added++
+                }
+            }
+            if (added > 0) {
+                HookUtils.log("$TAG: DexKit 自动发现 $added 个分享面板类")
+            }
+        } catch (t: Throwable) {
+            HookUtils.log("$TAG: discoverSharePanelClasses 失败: ${t.message}")
+        }
+    }
+
     override fun init(classLoader: ClassLoader) {
         if (installed) return
+
+        discoverSharePanelClasses()
 
         HookUtils.safeHook {
             // 策略1: Hook Dialog.show() — 最可靠的方式

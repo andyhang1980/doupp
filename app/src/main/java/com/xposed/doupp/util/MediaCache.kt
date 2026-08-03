@@ -33,7 +33,6 @@ object MediaCache {
 
     fun setCurrentAweme(aweme: Any?) {
         currentAweme = aweme
-        com.xposed.doupp.hook.AutoPlayControllerHook.onVideoStarted()
     }
 
     fun getCurrentAweme(): Any? = currentAweme

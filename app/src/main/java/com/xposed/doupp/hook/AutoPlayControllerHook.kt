@@ -58,52 +58,24 @@ class AutoPlayControllerHook : BaseHook {
         @Volatile private var kevaAutoPlayKey: Any? = null
         /** 上一次同步到 Keva 的值，避免反复写入 */
         @Volatile private var lastKevaSync: Boolean? = null
-        /** enabled() 结果缓存 TTL */
-        @Volatile private var lastEnabled: Boolean = true
-        @Volatile private var lastEnabledTime: Long = 0L
-        private const val ENABLED_CACHE_MS = 200L
 
         // triggerMoveToNext 供视频过滤（VideoFilterHook）跳过使用
-        /** 当前视频播放起始时间（构造器 Hook 中更新） */
-        @Volatile
-        private var videoStartTime = System.currentTimeMillis()
-
-        /** 通知 AutoPlayController 新视频已开始（重置计时器） */
-        @JvmStatic
-        fun onVideoStarted() {
-            videoStartTime = System.currentTimeMillis()
-        }
 
     private fun enabled(): Boolean {
-        val now = System.currentTimeMillis()
-        // 200ms 内复用上一个结果，避免高频反射开销
-        if (now - lastEnabledTime < ENABLED_CACHE_MS) return lastEnabled
         val autoPlay = DouSettings.isAutoPlayEnabled()
         if (!autoPlay) {
-            lastEnabled = false
-            lastEnabledTime = now
-            HookUtils.log("$TAG: enabled=false (autoPlay=$autoPlay)")
+            HookUtils.log("$TAG: enabled=false (autoPlay=false)")
             syncKevaIfNeeded(false)
             return false
         }
         val live = isCurrentAwemeLive()
         if (live) {
-            lastEnabled = false
-            lastEnabledTime = now
+            HookUtils.log("$TAG: enabled=false (live=true)")
             return false
         }
-        // 进度保护：视频播完 70% 后才允许自动连播，避免早跳
-        val dur = MediaCache.getContentDurationSec()
-        if (dur != null && dur > 3.0) {
-            val elapsed = (now - videoStartTime) / 1000.0
-            if (elapsed < dur * 0.7) {
-                lastEnabled = false
-                lastEnabledTime = now
-                return false
-            }
-        }
-        lastEnabled = true
-        lastEnabledTime = now
+        // 官方仅在 playableFinished / awemeCompleted（视频播完）时读取 rL1/tL1 决定是否连播，
+        // 播完时进度必然是 100%，因此这里不需要进度门控 —— 之前的 70% 进度检查会在视频
+        // 开头把用户开关读到 false，导致官方 uL1() 直接 postValue FALSE 取消整个连播调度。
         syncKevaIfNeeded(true)
         return true
     }
@@ -208,30 +180,28 @@ class AutoPlayControllerHook : BaseHook {
         val aweme = MediaCache.getCurrentAweme() ?: return false
         return try {
             val cls = aweme.javaClass
-            for (f in listOf("live", "mLive", "liveRoom", "roomInfo")) {
-                try {
-                    val field = cls.getDeclaredField(f)
-                    field.isAccessible = true
-                    if (field.get(aweme) != null) return true
-                } catch (_: Throwable) {}
-            }
-            for (f in listOf("liveId", "roomId", "mLiveId")) {
+            // 39.8 的 Aweme.isLive() 语义反直觉：awemeType==101 才是直播，
+            // 其它类型 isLive() 返回 true，因此不能调用该方法（会把普通视频误判为直播，
+            // 导致 enabled() 返回 false、官方取消连播调度）。
+            // 正确判断：awemeType == 101。
+            try {
+                val typeField = cls.getDeclaredField("awemeType")
+                typeField.isAccessible = true
+                val tv = typeField.get(aweme)
+                if (tv is Number) {
+                    if (tv.toInt() == 101) return true
+                    return false
+                }
+            } catch (_: Throwable) {}
+            // 明确直播标志兜底
+            for (f in listOf("isDetailLive", "isEcomLive", "isLiveReplay")) {
                 try {
                     val field = cls.getDeclaredField(f)
                     field.isAccessible = true
                     val v = field.get(aweme)
-                    if (v is String && v.isNotEmpty()) return true
+                    if (v is Boolean && v) return true
                 } catch (_: Throwable) {}
             }
-            try {
-                val m = cls.declaredMethods.firstOrNull {
-                    it.parameterCount == 0 && it.name.equals("isLive", ignoreCase = true)
-                }
-                if (m != null) {
-                    val r = m.invoke(aweme)
-                    if (r is Boolean && r) return true
-                }
-            } catch (_: Throwable) {}
             false
         } catch (_: Throwable) {
             false
@@ -247,6 +217,20 @@ class AutoPlayControllerHook : BaseHook {
                 HookUtils.log("$TAG: triggerMoveToNext blocked (autoPlay off)")
                 return
             }
+            doMoveToNext()
+        }
+
+        /**
+         * 强制跳转到下一个视频（绕过自动播放开关）。
+         * 供视频过滤（直播/图文/广告/购物视频跳过）使用：
+         * 用户明确要求过滤时不应受自动连播开关影响。
+         */
+        @JvmStatic
+        fun triggerMoveToNextForce() {
+            doMoveToNext()
+        }
+
+        private fun doMoveToNext() {
             val vm = currentAutoPlayVM ?: return
             try {
                 val eField = vm.javaClass.getDeclaredField(eFieldName)
@@ -285,11 +269,10 @@ class AutoPlayControllerHook : BaseHook {
             HookUtils.log("$TAG: 结构识别 hN1=${structure.hN1}, jN1=${structure.jN1}, gN1=${structure.gN1}, e=${structure.eField}")
             eFieldName = structure.eField
 
-            // Hook hN1() 和 jN1()，enabled() 内含进度比检查（播完 70% 才返回 true）
+            // Hook hN1() 和 jN1()（用户开关 + 功能总开关）。官方只在视频播完后读取它们
+            // 决定是否连播，因此这里直接返回用户开关状态即可，无需进度门控。
             hookBooleanMethod(clazz, structure.hN1)
             hookBooleanMethod(clazz, structure.jN1)
-            // 构造后把开关 LiveData 置为 enabled()（带进度判断的 enabled()，不会早跳）
-            hookConstructor(clazz, structure.gN1)
 
             // 尝试初始化 Keva 缓存（仅用于兜底同步，不依赖其成功）
             initKevaCache(classLoader)
@@ -397,6 +380,13 @@ class AutoPlayControllerHook : BaseHook {
                     param.result = v
                 }
                 override fun afterHookedMethod(param: MethodHookParam) {
+                    // 捕获 AutoPlayViewModel 实例（用于 triggerMoveToNextForce 跳转），
+                    // 替代已移除的构造器 hook —— 构造器 postValue 会导致过早跳转，
+                    // 这里仅记录实例，不改动任何值。
+                    val vm = param.thisObject
+                    if (vm != null && !Modifier.isStatic(m.modifiers)) {
+                        currentAutoPlayVM = vm
+                    }
                     val v = enabled()
                     if (param.result != v) HookUtils.log("$TAG: $name afterHook override ${param.result} -> $v")
                     param.result = v
@@ -452,31 +442,6 @@ class AutoPlayControllerHook : BaseHook {
                     })
                 } catch (_: Throwable) {}
             }
-        }
-    }
-
-    private fun hookConstructor(clazz: Class<*>, gN1: String) {
-        try {
-            val ctor = clazz.declaredConstructors.firstOrNull() ?: return
-            ctor.isAccessible = true
-            XposedBridge.hookMethod(ctor, object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    try {
-                        val vm = param.thisObject ?: return
-                        currentAutoPlayVM = vm
-                        val gMethod = clazz.getDeclaredMethod(gN1)
-                        gMethod.isAccessible = true
-                        val liveData = gMethod.invoke(vm) ?: return
-                        val post = liveData.javaClass.getMethod("postValue", Any::class.java)
-                        post.invoke(liveData, enabled())
-                    } catch (_: Throwable) {
-                    }
-                }
-            })
-            hooked.add("<init>")
-            HookUtils.log("$TAG: hook <init> ok")
-        } catch (t: Throwable) {
-            HookUtils.log("$TAG: hook <init> fail: ${t.message}")
         }
     }
 }

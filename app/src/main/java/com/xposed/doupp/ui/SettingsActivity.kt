@@ -25,6 +25,9 @@ class SettingsActivity : PreferenceActivity() {
             DouSettings.init(activity)
             bindPreferenceListeners()
             val sp = preferenceManager.sharedPreferences
+            // 全量同步框架 prefs -> 模块 prefs，确保 double_click_action 等
+            // 上次会话已设但本次未再变更的值不会缺失（safePref 只在变更时镜像）
+            sp?.let { DouSettings.syncFromFramework(it) }
             updateAdChildrenEnabled(sp?.getBoolean("remove_ad", true) ?: true)
             updateFilterChildrenEnabled(sp?.getBoolean("video_filter", false) ?: false)
             updateAutoPlayChildrenEnabled(sp?.getBoolean("auto_play", false) ?: false)

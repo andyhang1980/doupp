@@ -4,6 +4,7 @@ import android.view.View
 import android.widget.ImageView
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.ContextHelper
+import com.xposed.doupp.util.DexKitManager
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.MediaDownloader
 import de.robv.android.xposed.XC_MethodHook
@@ -32,6 +33,47 @@ class CommentHook : BaseHook {
         installed = true
     }
 
+    /**
+     * Hook a comment adapter class by attaching to onCreateViewHolder.
+     */
+    private fun hookAdapterOnCreateViewHolder(adapterClass: Class<*>) {
+        XposedBridge.hookAllMethods(adapterClass, "onCreateViewHolder",
+            object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    if (!adapterClass.isInstance(param.thisObject)) return
+                    try {
+                        val vh = param.result
+                        if (vh is androidx.recyclerview.widget.RecyclerView.ViewHolder) {
+                            addImageSaveHandler(vh.itemView)
+                        }
+                    } catch (_: Throwable) {}
+                }
+            })
+    }
+
+    /**
+     * Hook a ViewHolder constructor to access itemView.
+     */
+    private fun hookViewHolderConstructor(vhClass: Class<*>) {
+        for (ctor in vhClass.declaredConstructors) {
+            XposedBridge.hookMethod(ctor, object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    try {
+                        val vh = param.thisObject
+                        if (vh is androidx.recyclerview.widget.RecyclerView.ViewHolder) {
+                            addImageSaveHandler(vh.itemView)
+                        } else {
+                            val itemViewField = vh::class.java.getDeclaredField("itemView")
+                            itemViewField.isAccessible = true
+                            val itemView = itemViewField.get(vh) as? android.view.View ?: return
+                            addImageSaveHandler(itemView)
+                        }
+                    } catch (_: Throwable) {}
+                }
+            })
+        }
+    }
+
     private fun hookClipboard(classLoader: ClassLoader) {
         HookUtils.safeHook {
             val clipboardClass = HookUtils.findClassOrNull(
@@ -51,37 +93,65 @@ class CommentHook : BaseHook {
     }
 
     private fun hookCommentImageSave(classLoader: ClassLoader) {
-        val adapterClasses = listOf(
-            "com.ss.android.ugc.aweme.comment.ui.CommentListAdapter",
-            "com.ss.android.ugc.aweme.comment.adapter.CommentAdapter",
-            "com.ss.android.ugc.aweme.comment.adapter.CommentListAdapter",
-            "com.ss.android.ugc.aweme.comment.widget.CommentItemView"
-        )
-
         var hooked = false
-        for (className in adapterClasses) {
+
+        // 策略1: 尝试已知的 39.7 类名（DEX 扫描确认过的）
+        val knownCommentClasses = listOf(
+            "com.ss.android.ugc.aweme.comment.adapter.CommentAdapter",
+            "com.ss.android.ugc.aweme.comment.adapter.CommentAdapterV2",
+            "com.ss.android.ugc.aweme.comment.adapter.CommentViewHolder",
+            "com.ss.android.ugc.aweme.comment.adapter.CommentViewHolderV2",
+            "com.ss.android.ugc.aweme.comment.adapter.CommentItemViewHolder",
+            "com.ss.android.ugc.aweme.comment.ui.CommentItemView",
+            "com.ss.android.ugc.aweme.comment.ui.longpress.CommentLongPressItemView"
+        )
+        for (className in knownCommentClasses) {
             try {
                 val clazz = Class.forName(className, false, classLoader)
-                val bindMethods = clazz.declaredMethods.filter { m ->
-                    m.name.lowercase().contains("bind") &&
-                    m.parameterTypes.any { View::class.java.isAssignableFrom(it) }
+                val isAdapter = className.contains("Adapter", ignoreCase = true)
+                if (isAdapter) {
+                    hookAdapterOnCreateViewHolder(clazz)
+                } else {
+                    hookViewHolderConstructor(clazz)
                 }
-                for (method in bindMethods) {
-                    XposedBridge.hookMethod(method, object : XC_MethodHook() {
-                        override fun afterHookedMethod(param: XC_MethodHook.MethodHookParam) {
-                            try {
-                                val view = param.args.firstOrNull { it is View } as? View ?: return
-                                addImageSaveHandler(view)
-                            } catch (_: Throwable) {}
-                        }
-                    })
-                    hooked = true
+                hooked = true
+                HookUtils.log("$TAG: Hook 评论类成功: $className [${if (isAdapter) "Adapter" else "ViewHolder"}]")
+            } catch (_: ClassNotFoundException) {
+            }
+        }
+
+        // 策略2: DexKit 自动发现（适配未来版本）
+        if (!hooked) {
+            try {
+                val dexClasses = DexKitManager.findClassesByStrings(
+                    strings = listOf("comment"),
+                    packages = listOf("com.ss.android.ugc.aweme.comment.adapter")
+                )
+                val adapterNames = dexClasses.filter { it.endsWith("Adapter") }
+                for (name in adapterNames) {
+                    try {
+                        val clazz = Class.forName(name, false, classLoader)
+                        hookAdapterOnCreateViewHolder(clazz)
+                        hooked = true
+                        HookUtils.log("$TAG: DexKit 发现 Adapter: $name")
+                        break
+                    } catch (_: ClassNotFoundException) {}
                 }
-                if (hooked) {
-                    HookUtils.log("$TAG: Hook 评论 Item 绑定: $className (${bindMethods.size} 方法)")
-                    break
+                if (!hooked) {
+                    val vhNames = dexClasses.filter { it.endsWith("ViewHolder") || it.endsWith("ItemView") }
+                    for (name in vhNames) {
+                        try {
+                            val clazz = Class.forName(name, false, classLoader)
+                            hookViewHolderConstructor(clazz)
+                            hooked = true
+                            HookUtils.log("$TAG: DexKit 发现 ViewHolder: $name")
+                            break
+                        } catch (_: ClassNotFoundException) {}
+                    }
                 }
-            } catch (_: ClassNotFoundException) {}
+            } catch (t: Throwable) {
+                HookUtils.log("$TAG: DexKit 搜索评论类失败: ${t.message}")
+            }
         }
 
         if (!hooked) {
@@ -91,18 +161,46 @@ class CommentHook : BaseHook {
     }
 
     private fun addImageSaveHandler(root: View) {
-        if (root.id in savedViewIds) return
-        savedViewIds.add(root.id)
-        savedViewIds.add(System.identityHashCode(root))
+        val rootKey = System.identityHashCode(root)
+        if (rootKey in savedViewIds) return
+        savedViewIds.add(rootKey)
 
-        val imageViews = mutableListOf<ImageView>()
-        collectImageViews(root, imageViews)
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        handler.post {
+            try {
+                val imageViews = mutableListOf<ImageView>()
+                collectImageViews(root, imageViews)
 
-        for (iv in imageViews) {
-            iv.setOnLongClickListener { v ->
-                saveCommentImageInternal(iv)
-                true
-            }
+                for (iv in imageViews) {
+                    if (savedViewIds.contains(System.identityHashCode(iv))) continue
+                    savedViewIds.add(System.identityHashCode(iv))
+                    iv.setOnLongClickListener { v ->
+                        saveCommentImageInternal(iv)
+                        true
+                    }
+                }
+
+                // 监听布局变化，处理 Fresco 延迟加载的图片
+                root.viewTreeObserver.addOnGlobalLayoutListener(
+                    object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                        override fun onGlobalLayout() {
+                            try {
+                                val newImageViews = mutableListOf<ImageView>()
+                                collectImageViews(root, newImageViews)
+                                for (iv in newImageViews) {
+                                    val ivKey = System.identityHashCode(iv)
+                                    if (ivKey in savedViewIds) continue
+                                    savedViewIds.add(ivKey)
+                                    iv.setOnLongClickListener { v ->
+                                        saveCommentImageInternal(iv)
+                                        true
+                                    }
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                )
+            } catch (_: Throwable) {}
         }
     }
 

@@ -147,7 +147,7 @@ object DouSettings {
             val f = java.io.File("/data/data/$MODULE_PACKAGE/shared_prefs/$PREFS_NAME.xml")
             fileFound = f.exists()
             if (!fileFound) {
-                HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不存在")
+                HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不存在 (${f.absolutePath})")
                 return
             }
             if (!f.canRead()) {
@@ -268,6 +268,43 @@ object DouSettings {
 
     private fun putString(key: String, value: String) {
         getPrefs().edit().putString(key, value).apply()
+    }
+
+    /**
+     * 把设置页框架的 SharedPreferences 全量同步到模块 prefs。
+     * 关键修复: 设置页把值存在框架自己的 prefs（com.xposed.doupp_preferences.xml），
+     * safePref 仅在"值发生变更"时才镜像到模块 prefs。若用户上次会话已把
+     * double_click_action 等设为非默认值，本次打开设置页（值未再变化）不会触发监听器，
+     * 模块 prefs 就缺失该 key，抖音读到默认值。因此在每次打开设置页时全量同步一次。
+     */
+    fun syncFromFramework(frameworkSp: SharedPreferences) {
+        try {
+            val sp = prefs ?: return
+            val all = frameworkSp.all
+            if (all.isEmpty()) {
+                HookUtils.log("DouSettings: syncFromFramework 框架 prefs 为空")
+                return
+            }
+            val editor = sp.edit()
+            for ((k, v) in all) {
+                when (v) {
+                    is Boolean -> editor.putBoolean(k, v)
+                    is String -> editor.putString(k, v)
+                    is Int -> editor.putInt(k, v)
+                    is Long -> editor.putLong(k, v)
+                    is Float -> editor.putFloat(k, v)
+                    is Set<*> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        editor.putStringSet(k, v as Set<String>)
+                    }
+                }
+            }
+            editor.apply()
+            share()
+            HookUtils.log("DouSettings: syncFromFramework 同步 ${all.size} 个值到模块 prefs")
+        } catch (t: Throwable) {
+            HookUtils.log("DouSettings: syncFromFramework 异常: ${t.message}")
+        }
     }
 
     /**
@@ -595,6 +632,29 @@ object DouSettings {
         // 如果尚未初始化，尝试用默认值
         val p = prefs
         if (p != null) {
+            // DefaultPrefs 兜底也要定期重试：init 时 context 为 null 导致
+            // ContentProvider/本地 prefs 均失败，但应用启动后 Context 就绪、
+            // 模块进程运行后 Provider 可用，应切换到实时模式。
+            if (p is DefaultPrefs) {
+                val now = System.currentTimeMillis()
+                if (now - lastProviderRefresh > PROVIDER_REFRESH_MS) {
+                    lastProviderRefresh = now
+                    try {
+                        if (tryInitFromProvider()) {
+                            prefs = ProviderPrefs()
+                            HookUtils.log("DouSettings: DefaultPrefs->ContentProvider 升级成功")
+                        } else {
+                            val ctx = localContext ?: com.xposed.doupp.util.ContextHelper.getContext()
+                            if (ctx != null) {
+                                val localSp = ctx.getSharedPreferences(LOCAL_PREFS_NAME, Context.MODE_PRIVATE)
+                                prefs = localSp
+                                HookUtils.log("DouSettings: DefaultPrefs->本地 SharedPreferences 升级成功")
+                                syncFromModuleFile()
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
             // ProviderPrefs / FileBasedPrefs: 带 TTL 的实时刷新，保证设置变更即时生效。
             // 关键修复: FileBasedPrefs 在 init 时把 XML 一次性加载到内存就不再刷新，
             // 导致设置页改开关后，抖音进程感知不到（必须重启抖音才生效）。
@@ -619,7 +679,8 @@ object DouSettings {
                     }
                 }
             }
-            return p
+            // 可能已被上面的升级逻辑替换，返回最新 prefs
+            return prefs ?: p
         }
         // 懒加载：运行时若 Context 已可用，尝试通过 ContentProvider 或本地 prefs 初始化
         if (tryInitFromProvider()) {
@@ -656,13 +717,13 @@ object DouSettings {
         try {
             val context = com.xposed.doupp.util.ContextHelper.getContext()
             if (context == null) {
-                HookUtils.log("DouSettings: [DBG] tryInitFromProvider context==null")
+                HookUtils.log("DouSettings: [DBG] tryInitFromProvider context==null local=$localContext")
                 return false
             }
             val b = context.contentResolver.call(
                 Uri.parse("content://$MODULE_PACKAGE.settings"), "getAll", null, null
             )
-            HookUtils.log("DouSettings: [DBG] ContentProvider call 返回 b=${if (b == null) "null" else "size=${b.size()}"}")
+            HookUtils.log("DouSettings: [DBG] ContentProvider call 返回 b=${if (b == null) "null" else "size=${b.size()}"} local=$localContext")
             if (b != null && !b.isEmpty) {
                 providerBundle = b
                 HookUtils.log("DouSettings: ContentProvider 初始化成功 (keys=${b.size()})")
@@ -919,6 +980,19 @@ object DouSettings {
 
     fun getDoubleClickAction(): String =
         getPrefs().getString(KEY_DOUBLE_CLICK_ACTION, DEFAULT_DOUBLE_CLICK_ACTION) ?: DEFAULT_DOUBLE_CLICK_ACTION
+
+    /** 诊断: 打印当前 prefs 实际读到的所有 key 与 double_click_action 值 */
+    fun debugPrefsKeys(): String {
+        return try {
+            val p = prefs
+            if (p == null) return "prefs=null"
+            val all = p.all
+            val dca = p.getString(KEY_DOUBLE_CLICK_ACTION, null)
+            "type=${p.javaClass.simpleName} keys=${all.size} double_click_action=${dca}"
+        } catch (t: Throwable) {
+            "err=${t.message}"
+        }
+    }
 
     fun setDoubleClickAction(action: String) =
         putString(KEY_DOUBLE_CLICK_ACTION, action)
