@@ -221,12 +221,16 @@ class AutoPlayControllerHook : BaseHook {
         }
 
         /**
-         * 强制跳转到下一个视频（绕过自动播放开关）。
-         * 供视频过滤（直播/图文/广告/购物视频跳过）使用：
-         * 用户明确要求过滤时不应受自动连播开关影响。
+         * 强制跳转到下一个视频。
+         * 供视频过滤（直播/图文/广告/购物视频跳过）使用。
+         * 受自动播放开关控制：关闭自动播放时任何自动切换到下一个的行为都停止。
          */
         @JvmStatic
         fun triggerMoveToNextForce() {
+            if (!DouSettings.isAutoPlayEnabled()) {
+                HookUtils.log("$TAG: triggerMoveToNextForce blocked (autoPlay off)")
+                return
+            }
             doMoveToNext()
         }
 

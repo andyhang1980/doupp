@@ -45,6 +45,10 @@ class VideoFilterHook : BaseHook {
 
         @JvmStatic
         fun triggerFilterSwipe() {
+            if (!DouSettings.isAutoPlayEnabled()) {
+                HookUtils.log("$TAG: 过滤跳过被阻止 (autoPlay off)")
+                return
+            }
             val now = System.currentTimeMillis()
             if (now - lastFilterTime < FILTER_DEBOUNCE_MS) return
             lastFilterTime = now
