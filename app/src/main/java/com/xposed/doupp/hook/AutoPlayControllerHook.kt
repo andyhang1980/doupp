@@ -287,6 +287,48 @@ class AutoPlayControllerHook : BaseHook {
             } else {
                 HookUtils.log("$TAG: 未挂上任何方法")
             }
+
+            hookAutoPlayComponent(classLoader)
+        }
+    }
+
+    /**
+     * [39.8] hook AutoPlayComponent.triggerAutoPlayTask —— 官方自动连播的真正执行入口。
+     *
+     * 背景: 39.8 中 AutoPlayViewModel.rL1()（用户开关）返回值被我们强制 false 后，
+     * 官方连播仍会发生 —— 因为 triggerAutoPlayTask 内部直接读 Keva 的 auto_play_key
+     * （Keva 容器类在 39.8 已改名，模块无法写入），不经过 rL1()。因此必须在此拦截。
+     */
+    private fun hookAutoPlayComponent(classLoader: ClassLoader) {
+        try {
+            val compClass = try {
+                Class.forName(
+                    "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay.AutoPlayComponent",
+                    false, classLoader
+                )
+            } catch (_: Throwable) {
+                HookUtils.log("$TAG: AutoPlayComponent 未加载")
+                return
+            }
+            var hookedAny = false
+            for (m in compClass.declaredMethods) {
+                if (m.name == "triggerAutoPlayTask" && m.parameterCount == 2) {
+                    m.isAccessible = true
+                    XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            if (!DouSettings.isAutoPlayEnabled()) {
+                                HookUtils.log("$TAG: triggerAutoPlayTask blocked (autoPlay off)")
+                                param.result = null
+                            }
+                        }
+                    })
+                    HookUtils.log("$TAG: hook AutoPlayComponent.triggerAutoPlayTask ok")
+                    hookedAny = true
+                }
+            }
+            if (!hookedAny) HookUtils.log("$TAG: AutoPlayComponent.triggerAutoPlayTask 未找到")
+        } catch (t: Throwable) {
+            HookUtils.log("$TAG: hookAutoPlayComponent fail: ${t.message}")
         }
     }
 
