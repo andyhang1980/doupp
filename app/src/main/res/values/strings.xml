@@ -123,6 +123,22 @@
     <string name="pref_auto_play_hide_title">隐藏按钮</string>
     <string name="pref_auto_play_hide_summary">隐藏播放页的自动播放按钮</string>
 
+    <!-- 沉浸式播放 -->
+    <string name="category_immersive">沉浸式播放</string>
+    <string name="pref_immersive_mode_title">纯净播放模式</string>
+    <string name="pref_immersive_mode_summary">播放视频时只保留视频画面，隐藏其余界面与系统栏；暂停后恢复完整界面并显示悬浮下载按钮</string>
+
+    <!-- 书签 -->
+    <string name="category_bookmark">书签</string>
+    <string name="pref_bookmark_enabled_title">书签功能（总开关）</string>
+    <string name="pref_bookmark_enabled_summary">开启后可使用评论书签/作品书签/主页书签</string>
+    <string name="pref_bookmark_comment_title">评论书签</string>
+    <string name="pref_bookmark_comment_summary">长按评论收藏，检测新回复并提醒</string>
+    <string name="pref_bookmark_video_title">作品书签</string>
+    <string name="pref_bookmark_video_summary">在分享面板显示"收藏作品"按钮</string>
+    <string name="pref_bookmark_profile_title">主页书签</string>
+    <string name="pref_bookmark_profile_summary">收藏作者主页，检测新作品并提醒</string>
+
     <!-- 关于/社区 -->
     <string name="category_about">关于</string>
     <string name="pref_telegram_title">电报群组</string>

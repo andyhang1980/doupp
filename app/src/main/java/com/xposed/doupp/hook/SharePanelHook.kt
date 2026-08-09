@@ -17,6 +17,10 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.xposed.doupp.bookmark.ProfileBookmarkRecord
+import com.xposed.doupp.bookmark.ProfileBookmarkStore
+import com.xposed.doupp.bookmark.VideoBookmarkRecord
+import com.xposed.doupp.bookmark.VideoBookmarkStore
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.ClassFinder
 import com.xposed.doupp.util.DexKitManager
@@ -63,6 +67,8 @@ class SharePanelHook : BaseHook {
         private const val ICON_DOWNLOAD_IMAGE = "dyxs_22"
                 private const val ICON_COPY_TEXT     = "dyxs_06"
                 private const val ICON_SETTINGS      = "gear" // 用代码绘制的齿轮，避免素材图标观感差
+                private const val ICON_BOOKMARK      = "dyxs_05" // 收藏/书签图标
+        private const val ICON_PROFILE       = "dyxs_21" // 作者/用户图标
 
         /** 抖音分享面板相关类名特征（运行时动态追加） */
         private val SHARE_PANEL_CLASS_KEYWORDS = mutableListOf(
@@ -462,10 +468,20 @@ class SharePanelHook : BaseHook {
             arrayOf(Color.parseColor("#1E90FF"), ICON_DOWNLOAD_IMAGE, Color.WHITE, "下载图片", Runnable { downloadImages(context) })
         } else null
 
+        val bookmarkConfig = if (DouSettings.isVideoBookmarkEnabled()) {
+            arrayOf(Color.parseColor("#9B59B6"), ICON_BOOKMARK, Color.WHITE, "收藏作品", Runnable { toggleVideoBookmark(context) })
+        } else null
+
+        val profileConfig = if (DouSettings.isProfileBookmarkEnabled()) {
+            arrayOf(Color.parseColor("#E67E22"), ICON_PROFILE, Color.WHITE, "收藏作者", Runnable { toggleProfileBookmark(context) })
+        } else null
+
         val buttonConfigs = listOfNotNull(
             videoConfig,
             musicConfig,
             imageConfig,
+            bookmarkConfig,
+            profileConfig,
             copyConfig,
             arrayOf(Color.parseColor("#747D8C"), ICON_SETTINGS, Color.WHITE, "模块设置", Runnable { openSettings(context) })
         )
@@ -702,6 +718,166 @@ class SharePanelHook : BaseHook {
             context.startActivity(intent)
         } catch (t: Throwable) {
             HookUtils.showToast(context, "请在 LSPosed 管理器中打开 Dou+ 设置")
+        }
+    }
+
+    private fun toggleVideoBookmark(context: Context) {
+        try {
+            DouSettings.reload()
+            if (!com.xposed.doupp.bookmark.BookmarkStores.ensureInit(context)) {
+                HookUtils.showToast(context, "书签未初始化，请重启抖音")
+                return
+            }
+            val aweme = MediaCache.getCurrentAweme()
+            if (aweme == null) {
+                HookUtils.showToast(context, "未检测到内容，请先滑动到视频页面")
+                return
+            }
+            val awemeId = getAwemeId(aweme)
+            if (awemeId.isNullOrEmpty()) {
+                HookUtils.showToast(context, "无法获取作品ID")
+                return
+            }
+            val record = buildVideoBookmarkRecord(aweme, awemeId) ?: run {
+                HookUtils.showToast(context, "无法提取作品信息")
+                return
+            }
+            val bookmarked = VideoBookmarkStore.isBookmarked(awemeId)
+            if (bookmarked) {
+                VideoBookmarkStore.remove(awemeId)
+                HookUtils.showToast(context, "已取消收藏作品")
+            } else {
+                VideoBookmarkStore.add(record)
+                HookUtils.showToast(context, "已收藏作品 ✓")
+            }
+        } catch (t: Throwable) {
+            HookUtils.showToast(context, "收藏失败: ${t.message}")
+        }
+    }
+
+    private fun toggleProfileBookmark(context: Context) {
+        try {
+            DouSettings.reload()
+            if (!com.xposed.doupp.bookmark.BookmarkStores.ensureInit(context)) {
+                HookUtils.showToast(context, "书签未初始化，请重启抖音")
+                return
+            }
+            val aweme = MediaCache.getCurrentAweme()
+            if (aweme == null) {
+                HookUtils.showToast(context, "未检测到内容，请先滑动到视频页面")
+                return
+            }
+            val author = HookUtils.getFieldDeep(aweme, "author") ?: HookUtils.getFieldDeep(aweme, "mAuthor")
+            if (author == null) {
+                HookUtils.showToast(context, "无法获取作者信息")
+                return
+            }
+            val uid = HookUtils.getFieldDeep(author, "uid") as? String ?: ""
+            val secUid = HookUtils.getFieldDeep(author, "secUid") as? String ?: ""
+            val nickname = HookUtils.getFieldDeep(author, "nickname") as? String ?: ""
+            if (uid.isEmpty() && secUid.isEmpty() && nickname.isEmpty()) {
+                HookUtils.showToast(context, "无法识别作者")
+                return
+            }
+            val record = ProfileBookmarkRecord(
+                uid = uid,
+                secUid = secUid,
+                nickname = nickname,
+                signature = (HookUtils.getFieldDeep(author, "signature") as? String) ?: "",
+                avatarUrl = extractAvatarUrl(author),
+                group = "默认",
+                remark = "",
+                createTimestamp = System.currentTimeMillis(),
+                lastCheckTimestamp = 0L,
+                lastAwemeCount = 0,
+                lastNewestAwemeId = "",
+                hasNewAweme = false,
+                newAwemeCount = 0,
+                knownAwemeIds = LinkedHashSet(),
+                newAwemeItems = mutableListOf(),
+                notificationEnabled = true
+            )
+            val key = record.uniqueKey()
+            val bookmarked = ProfileBookmarkStore.isBookmarked(record)
+            if (bookmarked) {
+                ProfileBookmarkStore.remove(key)
+                HookUtils.showToast(context, "已取消收藏作者")
+            } else {
+                ProfileBookmarkStore.add(record)
+                HookUtils.showToast(context, "已收藏作者 ✓ 有新作品将提醒")
+            }
+        } catch (t: Throwable) {
+            HookUtils.showToast(context, "收藏失败: ${t.message}")
+        }
+    }
+
+    private fun extractAvatarUrl(author: Any): String {
+        return try {
+            val avatar = HookUtils.getFieldDeep(author, "avatarThumb") as? Any
+                ?: HookUtils.getFieldDeep(author, "avatar_thumb") as? Any
+                ?: HookUtils.getFieldDeep(author, "avatar") as? Any
+                ?: return ""
+            val urlList = HookUtils.getFieldDeep(avatar, "urlList") as? List<*>
+                ?: HookUtils.getFieldDeep(avatar, "url_list") as? List<*>
+                ?: return ""
+            urlList.filterIsInstance<String>().firstOrNull { it.startsWith("http") } ?: ""
+        } catch (_: Throwable) {
+            ""
+        }
+    }
+
+    private fun buildVideoBookmarkRecord(aweme: Any, awemeId: String): VideoBookmarkRecord? {
+        return try {
+            val desc = MediaCache.getAwemeDesc(aweme) ?: ""
+            val author = HookUtils.getFieldDeep(aweme, "author") ?: HookUtils.getFieldDeep(aweme, "mAuthor")
+            val authorName = author?.let { HookUtils.getFieldDeep(it, "nickname") as? String } ?: ""
+            val authorUid = author?.let { HookUtils.getFieldDeep(it, "uid") as? String } ?: ""
+            val authorSecUid = author?.let { HookUtils.getFieldDeep(it, "secUid") as? String } ?: ""
+            val coverUrl = extractCoverUrl(aweme)
+            val digg = (HookUtils.getFieldDeep(aweme, "diggCount") as? Number)?.toLong() ?: 0L
+            val comment = (HookUtils.getFieldDeep(aweme, "commentCount") as? Number)?.toLong() ?: 0L
+            val collect = (HookUtils.getFieldDeep(aweme, "collectCount") as? Number)?.toLong() ?: 0L
+            val createTime = (HookUtils.getFieldDeep(aweme, "createTime") as? Number)?.toLong() ?: 0L
+            val typeLabel = detectTypeLabel(aweme)
+            VideoBookmarkRecord(
+                awemeId = awemeId,
+                typeLabel = typeLabel,
+                title = desc,
+                authorName = authorName,
+                authorUid = authorUid,
+                authorSecUid = authorSecUid,
+                coverUrl = coverUrl,
+                shareUrl = "",
+                diggCount = digg,
+                commentCount = comment,
+                collectCount = collect,
+                createTime = createTime,
+                createTimestamp = System.currentTimeMillis()
+            )
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun extractCoverUrl(aweme: Any): String {
+        return try {
+            val video = HookUtils.getFieldDeep(aweme, "video") ?: return ""
+            val cover = HookUtils.getFieldDeep(video, "cover") ?: return ""
+            val urlList = HookUtils.getFieldDeep(cover, "urlList") as? List<*>
+                ?: HookUtils.getFieldDeep(cover, "url_list") as? List<*>
+                ?: return ""
+            urlList.filterIsInstance<String>().firstOrNull { it.startsWith("http") } ?: ""
+        } catch (_: Throwable) {
+            ""
+        }
+    }
+
+    private fun detectTypeLabel(aweme: Any): String {
+        return try {
+            val images = HookUtils.getFieldDeep(aweme, "images")
+            if (images is List<*> && images.isNotEmpty()) VideoBookmarkRecord.TYPE_PHOTO else VideoBookmarkRecord.TYPE_VIDEO
+        } catch (_: Throwable) {
+            VideoBookmarkRecord.TYPE_VIDEO
         }
     }
 

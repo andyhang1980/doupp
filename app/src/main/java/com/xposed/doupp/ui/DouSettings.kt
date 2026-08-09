@@ -56,6 +56,11 @@ object DouSettings {
     const val KEY_FILTER_KEYWORDS = "filter_keywords"
     const val KEY_LONG_VIDEO_SECONDS = "long_video_seconds"
     const val KEY_DOUBLE_CLICK_ACTION = "double_click_action"
+    const val KEY_IMMERSIVE_MODE = "immersive_mode"
+    const val KEY_BOOKMARK_ENABLED = "bookmark_enabled"
+    const val KEY_BOOKMARK_COMMENT = "bookmark_comment"
+    const val KEY_BOOKMARK_VIDEO = "bookmark_video"
+    const val KEY_BOOKMARK_PROFILE = "bookmark_profile"
 
     // ==================== 默认值 ====================
     private const val DEFAULT_DOWNLOAD_VIDEO = true
@@ -81,6 +86,11 @@ object DouSettings {
     private const val DEFAULT_DOUBLE_CLICK_ACTION = "like"
     private const val DEFAULT_AUTO_PLAY_FLOATING = true
     private const val DEFAULT_AUTO_PLAY_HIDE = false
+    private const val DEFAULT_IMMERSIVE_MODE = false
+    private const val DEFAULT_BOOKMARK_ENABLED = true
+    private const val DEFAULT_BOOKMARK_COMMENT = true
+    private const val DEFAULT_BOOKMARK_VIDEO = true
+    private const val DEFAULT_BOOKMARK_PROFILE = true
 
     @Volatile
     private var prefs: SharedPreferences? = null
@@ -217,6 +227,11 @@ object DouSettings {
                     putBoolean(KEY_SAVE_COMMENT_MEDIA, DEFAULT_SAVE_COMMENT_MEDIA)
                     putString(KEY_SAVE_DIRECTORY, DEFAULT_SAVE_DIRECTORY)
                     putString(KEY_AD_KEYWORDS, "")
+                    putBoolean(KEY_IMMERSIVE_MODE, DEFAULT_IMMERSIVE_MODE)
+                    putBoolean(KEY_BOOKMARK_ENABLED, DEFAULT_BOOKMARK_ENABLED)
+                    putBoolean(KEY_BOOKMARK_COMMENT, DEFAULT_BOOKMARK_COMMENT)
+                    putBoolean(KEY_BOOKMARK_VIDEO, DEFAULT_BOOKMARK_VIDEO)
+                    putBoolean(KEY_BOOKMARK_PROFILE, DEFAULT_BOOKMARK_PROFILE)
                 }.apply()
                 // 文件刚创建，再次把目录与文件设为 world-readable
                 makeWorldAccessible(context)
@@ -820,20 +835,47 @@ object DouSettings {
         putString(KEY_AD_KEYWORDS, value)
     }
 
+    /** ContentProvider 读取缓存（避免频繁 IPC）。1s TTL 在实时性与性能间折中。 */
+    @Volatile
+    private var cachedAutoPlayFromProvider: Boolean? = null
+    @Volatile
+    private var lastAutoPlayProviderRead = 0L
+    private const val AUTOPLAY_PROVIDER_TTL_MS = 1000L
+
     fun isAutoPlayEnabled(): Boolean {
-        // 优先使用运行期内存值（播放界面按钮切换立即生效）
+        // 1. 运行期内存值（悬浮按钮同进程内切换立即生效，仅会话级，不跨进程）。
         autoPlayRuntime?.let { return it }
-        // 其次读取独立世界可读文件（跨进程持久化）
-        try {
-            val f = autoPlayFile()
-            if (f.exists()) {
-                val txt = f.readText().trim()
-                if (txt == "1" || txt == "0") {
-                    return txt == "1"
-                }
-            }
-        } catch (_: Throwable) {}
-        return getPrefs().getBoolean(KEY_AUTO_PLAY, DEFAULT_AUTO_PLAY)
+
+        // 2. ContentProvider（跨进程权威源，日志已证实可用）。带 1s 缓存避免频繁 IPC。
+        val now = System.currentTimeMillis()
+        val cached = cachedAutoPlayFromProvider
+        if (cached != null && now - lastAutoPlayProviderRead < AUTOPLAY_PROVIDER_TTL_MS) {
+            return cached
+        }
+        val fromProvider = readAutoPlayFromProvider()
+        if (fromProvider != null) {
+            cachedAutoPlayFromProvider = fromProvider
+            lastAutoPlayProviderRead = now
+            HookUtils.log("DouSettings: isAutoPlayEnabled -> $fromProvider (ContentProvider)")
+            return fromProvider
+        }
+
+        // 3. 兜底默认值（仅当 ContentProvider 完全不可用时）。
+        return DEFAULT_AUTO_PLAY
+    }
+
+    /** 通过 ContentProvider 读取 KEY_AUTO_PLAY。返回 null 表示不可用。 */
+    private fun readAutoPlayFromProvider(): Boolean? {
+        return try {
+            val context = com.xposed.doupp.util.ContextHelper.getContext() ?: return null
+            val b = context.contentResolver.call(
+                Uri.parse("content://$MODULE_PACKAGE.settings"), "getAll", null, null
+            ) ?: return null
+            if (b.containsKey(KEY_AUTO_PLAY)) b.getBoolean(KEY_AUTO_PLAY) else null
+        } catch (t: Throwable) {
+            HookUtils.log("DouSettings: readAutoPlayFromProvider 失败: ${t.message}")
+            null
+        }
     }
 
     // ==================== 评论区 ====================
@@ -996,6 +1038,46 @@ object DouSettings {
 
     fun setDoubleClickAction(action: String) =
         putString(KEY_DOUBLE_CLICK_ACTION, action)
+
+    // ==================== 沉浸式播放 ====================
+
+    /**
+     * 沉浸式纯净播放开关。
+     * 播放视频时隐藏视频画面以外的抖音界面与系统栏，只保留视频画面；
+     * 暂停后恢复完整界面并显示悬浮下载按钮。
+     * 默认关闭（避免影响其它功能）。
+     */
+    fun isImmersiveModeEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_IMMERSIVE_MODE, DEFAULT_IMMERSIVE_MODE)
+
+    fun setImmersiveMode(enabled: Boolean) =
+        putBoolean(KEY_IMMERSIVE_MODE, enabled)
+
+    // ==================== 书签 ====================
+
+    fun isBookmarkEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_BOOKMARK_ENABLED, DEFAULT_BOOKMARK_ENABLED)
+
+    fun isCommentBookmarkEnabled(): Boolean =
+        isBookmarkEnabled() && getPrefs().getBoolean(KEY_BOOKMARK_COMMENT, DEFAULT_BOOKMARK_COMMENT)
+
+    fun isVideoBookmarkEnabled(): Boolean =
+        isBookmarkEnabled() && getPrefs().getBoolean(KEY_BOOKMARK_VIDEO, DEFAULT_BOOKMARK_VIDEO)
+
+    fun isProfileBookmarkEnabled(): Boolean =
+        isBookmarkEnabled() && getPrefs().getBoolean(KEY_BOOKMARK_PROFILE, DEFAULT_BOOKMARK_PROFILE)
+
+    fun setBookmarkEnabled(enabled: Boolean) =
+        putBoolean(KEY_BOOKMARK_ENABLED, enabled)
+
+    fun setCommentBookmark(enabled: Boolean) =
+        putBoolean(KEY_BOOKMARK_COMMENT, enabled)
+
+    fun setVideoBookmark(enabled: Boolean) =
+        putBoolean(KEY_BOOKMARK_VIDEO, enabled)
+
+    fun setProfileBookmark(enabled: Boolean) =
+        putBoolean(KEY_BOOKMARK_PROFILE, enabled)
 
 }
 

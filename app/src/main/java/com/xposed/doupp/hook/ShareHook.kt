@@ -11,16 +11,8 @@ import de.robv.android.xposed.XposedHelpers
 /**
  * 分享拦截 Hook
  *
- * 适配最新版抖音:
- * - 扩展分享 Intent 检测（新增抖音内部分享渠道）
- * - 支持 ClipboardManager 拦截（复制链接场景）
- * - 保持原有 startActivity/startActivityForResult Hook
- *
- * 功能:
- * - Hook Intent 的 startActivity 方法
- * - 拦截抖音分享的 Intent
- * - 从 extras 中提取视频/图片信息
- * - 弹出保存选项
+ * 只拦截真正的分享 Intent (ACTION_SEND / ACTION_SEND_MULTIPLE)
+ * 不拦截抖音内部导航（打开评论、个人页等），避免误触发下载
  */
 class ShareHook : BaseHook {
 
@@ -74,38 +66,21 @@ class ShareHook : BaseHook {
                 }
             })
 
-            // Hook Instrumentation.execStartActivity (更底层的拦截)
-            try {
-                val instrumentationClass = Class.forName("android.app.Instrumentation", false, classLoader)
-                XposedBridge.hookAllMethods(instrumentationClass, "execStartActivity", object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        try {
-                            val intent = param.args.filterIsInstance<android.content.Intent>().firstOrNull() ?: return
-                            processShareIntent(intent, classLoader)
-                        } catch (_: Throwable) {}
-                    }
-                })
-                HookUtils.log("$TAG: Instrumentation Hook 已安装")
-            } catch (_: Throwable) {}
-
-            HookUtils.log("$TAG: 分享Intent Hook 已安装")
+            HookUtils.log("$TAG: 分享Intent Hook 已安装 (仅 ACTION_SEND)")
         }
     }
 
     /**
      * 处理分享 Intent
-     * 检查是否包含抖音媒体 URL，如果有则处理
+     * 只处理 ACTION_SEND / ACTION_SEND_MULTIPLE，跳过内部导航
      */
     private fun processShareIntent(intent: android.content.Intent, classLoader: ClassLoader) {
-        val extras = intent.extras ?: return
-
-        // 检查是否来自抖音
-        val callingPackage = intent.`package` ?: ""
-        val component = intent.component?.packageName ?: ""
-        if (!callingPackage.contains("aweme") && !component.contains("aweme") &&
-            !callingPackage.contains("douyin") && !component.contains("douyin")) {
+        val action = intent.action ?: return
+        if (action != android.content.Intent.ACTION_SEND && action != android.content.Intent.ACTION_SEND_MULTIPLE) {
             return
         }
+
+        val extras = intent.extras ?: return
 
         // 遍历 extras 查找 URL
         for (key in extras.keySet()) {

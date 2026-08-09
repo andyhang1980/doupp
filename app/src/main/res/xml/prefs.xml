@@ -192,6 +192,49 @@
 
     </PreferenceCategory>
 
+    <!-- ==================== 书签 ==================== -->
+    <PreferenceCategory android:title="@string/category_bookmark">
+
+        <CheckBoxPreference
+            android:key="bookmark_enabled"
+            android:title="@string/pref_bookmark_enabled_title"
+            android:summary="@string/pref_bookmark_enabled_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="bookmark_comment"
+            android:title="@string/pref_bookmark_comment_title"
+            android:summary="@string/pref_bookmark_comment_summary"
+            android:defaultValue="true"
+            android:dependency="bookmark_enabled" />
+
+        <CheckBoxPreference
+            android:key="bookmark_video"
+            android:title="@string/pref_bookmark_video_title"
+            android:summary="@string/pref_bookmark_video_summary"
+            android:defaultValue="true"
+            android:dependency="bookmark_enabled" />
+
+        <CheckBoxPreference
+            android:key="bookmark_profile"
+            android:title="@string/pref_bookmark_profile_title"
+            android:summary="@string/pref_bookmark_profile_summary"
+            android:defaultValue="true"
+            android:dependency="bookmark_enabled" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 沉浸式播放 ==================== -->
+    <PreferenceCategory android:title="@string/category_immersive">
+
+        <CheckBoxPreference
+            android:key="immersive_mode"
+            android:title="@string/pref_immersive_mode_title"
+            android:summary="@string/pref_immersive_mode_summary"
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
     <!-- ==================== 关于 ==================== -->
     <PreferenceCategory android:title="@string/category_about">
 

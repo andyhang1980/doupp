@@ -3,12 +3,14 @@ package com.xposed.doupp
 import com.xposed.doupp.hook.AdHook
 import com.xposed.doupp.hook.AutoPlayButtonHook
 import com.xposed.doupp.hook.AutoPlayControllerHook
+import com.xposed.doupp.hook.BookmarkHook
 import com.xposed.doupp.hook.CommentHook
 import com.xposed.doupp.hook.DoubleClickHook
 import com.xposed.doupp.hook.DownloadDialogHook
 import com.xposed.doupp.hook.DownloadHook
 import com.xposed.doupp.hook.FeedHook
 import com.xposed.doupp.hook.HotUpdateHook
+import com.xposed.doupp.hook.ImmersivePlayHook
 import com.xposed.doupp.hook.LivePhotoHook
 import com.xposed.doupp.hook.ShareHook
 import com.xposed.doupp.hook.SharePanelHook
@@ -161,6 +163,8 @@ class MainHook : IXposedHookLoadPackage {
             AutoPlayButtonHook(),     // 播放页自动连播状态指示按钮
             VideoFilterHook(),        // 视频过滤（直播/图文/长视频/关键词），跳过用合成滑动
             DoubleClickHook(),      // 双击屏幕自定义行为（评论/分享/点赞/无操作）
+            ImmersivePlayHook(),    // 沉浸式纯净播放（独立开关，默认关闭）+ 暂停悬浮下载
+            BookmarkHook(),         // 书签：评论/作品/主页收藏 + 新回复/新作品探测
         )
     }
 

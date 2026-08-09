@@ -45,26 +45,8 @@ class VideoFilterHook : BaseHook {
 
         @JvmStatic
         fun triggerFilterSwipe() {
-            if (!DouSettings.isAutoPlayEnabled()) {
-                HookUtils.log("$TAG: 过滤跳过被阻止 (autoPlay off)")
-                return
-            }
-            val now = System.currentTimeMillis()
-            if (now - lastFilterTime < FILTER_DEBOUNCE_MS) return
-            lastFilterTime = now
-
-            mainHandler.postDelayed({
-                try {
-                    val activity = com.xposed.doupp.util.ContextHelper.getCurrentActivity() ?: return@postDelayed
-                    val activityName = activity.javaClass.name
-                    if (!activityName.contains("MainActivity") && !activityName.contains("main")) return@postDelayed
-
-                    HookUtils.log("$TAG: 触发官方连播跳过")
-                    AutoPlayControllerHook.triggerMoveToNextForce()
-                } catch (t: Throwable) {
-                    HookUtils.log("$TAG: 官方跳过失败: ${t.message}")
-                }
-            }, 300)
+            HookUtils.log("$TAG: 触发官方连播跳过被阻止 (由官方自动播放控制，filter不强制跳过)")
+            return
         }
 
         private fun isMethodHooked(m: java.lang.reflect.Method): Boolean {

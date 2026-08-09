@@ -93,10 +93,6 @@ class DownloadDialogHook : BaseHook {
                     XposedBridge.hookAllMethods(clazz, "onClick", object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
                             try {
-                                if (tryHandleLivePhotoSave()) {
-                                    param.result = null
-                                    return
-                                }
                                 replaceUrlInArgs(param)
                             } catch (_: Throwable) {}
                         }

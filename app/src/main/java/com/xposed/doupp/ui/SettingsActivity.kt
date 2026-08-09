@@ -116,6 +116,11 @@ class SettingsActivity : PreferenceActivity() {
             }
             safePref("auto_play_floating") { DouSettings.setAutoPlayFloating(it as Boolean) }
             safePref("auto_play_hide") { DouSettings.setAutoPlayHide(it as Boolean) }
+            safePref("immersive_mode") { DouSettings.setImmersiveMode(it as Boolean) }
+            safePref("bookmark_enabled") { DouSettings.setBookmarkEnabled(it as Boolean) }
+            safePref("bookmark_comment") { DouSettings.setCommentBookmark(it as Boolean) }
+            safePref("bookmark_video") { DouSettings.setVideoBookmark(it as Boolean) }
+            safePref("bookmark_profile") { DouSettings.setProfileBookmark(it as Boolean) }
             findPreference("telegram")?.setOnPreferenceClickListener {
                 openTelegram()
                 true
