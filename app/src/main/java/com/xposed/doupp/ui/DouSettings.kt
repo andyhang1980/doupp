@@ -140,6 +140,14 @@ object DouSettings {
      */
     fun setLocalContext(ctx: Context) {
         localContext = ctx
+        // context 就绪后，尝试从模块文件同步设置到本地 SharedPreferences
+        try {
+            val localSp = ctx.getSharedPreferences(LOCAL_PREFS_NAME, Context.MODE_PRIVATE)
+            if (prefs == null || prefs is DefaultPrefs) {
+                prefs = localSp
+            }
+            syncFromModuleFile()
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -154,19 +162,31 @@ object DouSettings {
         lastSyncFromFile = now
         var fileFound = false
         try {
-            val f = java.io.File("/data/data/$MODULE_PACKAGE/shared_prefs/$PREFS_NAME.xml")
-            fileFound = f.exists()
-            if (!fileFound) {
-                HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不存在 (${f.absolutePath})")
-                return
+            val candidates = mutableListOf<java.io.File>()
+            candidates.add(java.io.File("/data/data/$MODULE_PACKAGE/shared_prefs/$PREFS_NAME.xml"))
+            // 尝试通过 Context 获取真实 dataDir
+            val ctx = localContext ?: com.xposed.doupp.util.ContextHelper.getContext()
+            if (ctx != null) {
+                try {
+                    val moduleInfo = ctx.packageManager.getApplicationInfo(MODULE_PACKAGE, 0)
+                    candidates.add(java.io.File(moduleInfo.dataDir, "shared_prefs/$PREFS_NAME.xml"))
+                } catch (_: Throwable) {}
             }
-            if (!f.canRead()) {
-                HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不可读 (${f.length()} bytes)")
+            var sourceFile: java.io.File? = null
+            for (f in candidates) {
+                if (f.exists() && f.canRead()) {
+                    sourceFile = f
+                    fileFound = true
+                    break
+                }
+            }
+            if (sourceFile == null) {
+                HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不存在或不可读")
                 return
             }
             val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
             val builder = factory.newDocumentBuilder()
-            val doc = builder.parse(f)
+            val doc = builder.parse(sourceFile)
             val editor = local.edit()
             var count = 0
             val boolNodes = doc.getElementsByTagName("boolean")
@@ -184,7 +204,7 @@ object DouSettings {
                 editor.putString(key, value); count++
             }
             editor.apply()
-            HookUtils.log("DouSettings: syncFromModuleFile 成功，同步 $count 个值")
+            HookUtils.log("DouSettings: syncFromModuleFile 成功，同步 $count 个值 (${sourceFile.absolutePath})")
         } catch (t: Throwable) {
             HookUtils.log("DouSettings: syncFromModuleFile 异常: ${t.message} (fileExists=$fileFound)")
         }
@@ -846,7 +866,7 @@ object DouSettings {
         // 1. 运行期内存值（悬浮按钮同进程内切换立即生效，仅会话级，不跨进程）。
         autoPlayRuntime?.let { return it }
 
-        // 2. ContentProvider（跨进程权威源，日志已证实可用）。带 1s 缓存避免频繁 IPC。
+        // 2. ContentProvider（跨进程权威源）。带 1s 缓存避免频繁 IPC。
         val now = System.currentTimeMillis()
         val cached = cachedAutoPlayFromProvider
         if (cached != null && now - lastAutoPlayProviderRead < AUTOPLAY_PROVIDER_TTL_MS) {
@@ -860,8 +880,10 @@ object DouSettings {
             return fromProvider
         }
 
-        // 3. 兜底默认值（仅当 ContentProvider 完全不可用时）。
-        return DEFAULT_AUTO_PLAY
+        // 3. 本地 SharedPreferences 兜底（通过 getPrefs 多种策略初始化）。
+        val fromPrefs = getPrefs().getBoolean(KEY_AUTO_PLAY, DEFAULT_AUTO_PLAY)
+        HookUtils.log("DouSettings: isAutoPlayEnabled -> $fromPrefs (prefs fallback)")
+        return fromPrefs
     }
 
     /** 通过 ContentProvider 读取 KEY_AUTO_PLAY。返回 null 表示不可用。 */
