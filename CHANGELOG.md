@@ -1,5 +1,22 @@
 # DYPP 更新日志
 
+## v3.0.0 (2026-08-16)
+
+### 新增
+
+- **适配抖音 40.0.0**（versionCode 400001）：
+  - 40.0.0 全字段混淆（Video 字段名变为单字母且 getter 被移除），新增 **@SerializedName 注解反查机制**
+  - `HookUtils.getFieldDeep` / `MediaCache.objByNames` 在字段名匹配失败时，通过 Gson `@SerializedName` 注解按原始 JSON 名（如 `play_addr_h264`、`download_addr`、`bit_rate`）反查字段
+  - 兼容 `aweme_id -> aid`、`bit_rate -> y` 等混淆映射，无水印下载 / 视频时长 / 过滤判断恢复正常
+- 分享面板支持 40.0.0 新 `CommandDialog` 系列（`ShareCommandDialog` / `VideoShareCommandDialog` 等）
+- 评论图片保存候选类补充 40.0.0 实际存在的 `CommentViewHolderOldStyle`
+- VerticalViewPager 候选补充 40.0.0 新位置 `base.ui.FlippableViewPager`
+
+### 修复
+
+- `FeedHook` / `VideoFilterHook` 的 Aweme ID 识别补充 `getAid()` / `aid`（40.0.0 Aweme 主键）
+- 版本检测补充 40.0.0 实际 versionCode 400001
+
 ## v2.0.2 (2026-08-09)
 
 ### 修复

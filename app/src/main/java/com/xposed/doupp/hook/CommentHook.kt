@@ -95,11 +95,12 @@ class CommentHook : BaseHook {
     private fun hookCommentImageSave(classLoader: ClassLoader) {
         var hooked = false
 
-        // 策略1: 尝试已知的 39.7 类名（DEX 扫描确认过的）
+        // 策略1: 尝试已知类名（DEX 扫描确认过的）
         val knownCommentClasses = listOf(
             "com.ss.android.ugc.aweme.comment.adapter.CommentAdapter",
             "com.ss.android.ugc.aweme.comment.adapter.CommentAdapterV2",
             "com.ss.android.ugc.aweme.comment.adapter.CommentViewHolder",
+            "com.ss.android.ugc.aweme.comment.adapter.CommentViewHolderOldStyle",
             "com.ss.android.ugc.aweme.comment.adapter.CommentViewHolderV2",
             "com.ss.android.ugc.aweme.comment.adapter.CommentItemViewHolder",
             "com.ss.android.ugc.aweme.comment.ui.CommentItemView",

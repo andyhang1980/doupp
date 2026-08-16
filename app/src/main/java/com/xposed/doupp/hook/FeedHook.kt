@@ -105,7 +105,8 @@ class FeedHook : BaseHook {
                 // 作为 getVideo() 的补充，确保所有内容类型都被缓存
                 val idMethod = allMethods.firstOrNull { m ->
                     val name = m.name.lowercase()
-                    name == "getawemeid" || name == "awemeid" || name == "itemid"
+                    name == "getawemeid" || name == "awemeid" || name == "itemid" ||
+                        name == "getaid" || name == "aid"
                 }
 
                 if (idMethod != null && idMethod != videoMethod) {

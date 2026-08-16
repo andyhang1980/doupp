@@ -157,8 +157,12 @@ object MediaCache {
 
             // downloadAddr（优先使用 getFieldDeep 查找父类字段）
             addFromAddr(objByNames(video, listOf("downloadAddr", "download_addr")))
-            // 各种 playAddr 字段（同样使用 getFieldDeep / getter）
+            // 各种 playAddr 字段（同样使用 getFieldDeep / getter / @SerializedName 反查）
             for (addrName in PLAY_ADDR_FIELD_NAMES) {
+                addFromAddr(objByNames(video, listOf(addrName)))
+            }
+            // 版本化候选（含 40.0.0 序列化名，配合 @SerializedName 反查）
+            for (addrName in com.xposed.doupp.util.VersionCompat.getPlayAddrCandidates()) {
                 addFromAddr(objByNames(video, listOf(addrName)))
             }
             // 新增：尝试查找 videoResource 字段（新版抖音结构）
@@ -281,7 +285,7 @@ object MediaCache {
      */
     private fun extractBitRatePlayAddr(video: Any): String? {
         try {
-            val brList = objByNames(video, listOf("bitRateList", "bitrateList"))
+            val brList = objByNames(video, listOf("bitRateList", "bitrateList", "bitRate", "bit_rate"))
                 ?: return null
             if (brList !is List<*>) return null
 
@@ -685,7 +689,7 @@ object MediaCache {
             // 优先使用 Video 对象上的权威时长字段（video.duration 等），它才是真实播放时长。
             // 若 Video 时长有效则直接采用，避免误选 Aweme 级其它时间字段（如音乐时长、服务器时间等）
             // 导致时长被高估/低估而误判播完。仅在 Video 时长缺失时，才回退到全部候选的最大值。
-            val VIDEO_PRIORITY = listOf("duration", "videoDuration", "Duration", "realDuration", "durationMs", "playDuration")
+            val VIDEO_PRIORITY = listOf("duration", "videoDuration", "Duration", "realDuration", "real_duration", "durationMs", "playDuration")
             if (video != null) {
                 for (fieldName in VIDEO_PRIORITY) {
                     val v = objByNames(video, listOf(fieldName)) as? Number
@@ -830,14 +834,40 @@ object MediaCache {
     }
 
     /**
-     * 兼容混淆: 先尝试字段，再尝试无参 getter 方法（方法名等于候选名或 getXxx）。
-     * 抖音 release 会把模型字段/方法混淆，仅靠字段名提取在 39.x 会失效，
-     * 因此增加 getter 兜底。数据类 getter 通常为纯读取，调用安全。
+     * 通过 @SerializedName 注解反查字段值（适配 40.0.0 全字段混淆）。
+     *
+     * 40.0.0 中模型字段被 R8 混淆为单字母（如 play_addr_h264 -> 字段 d），
+     * 但 Gson 的 @SerializedName 注解保留了原始 JSON 名。遍历类的全部字段
+     * （含父类），读取每个字段的 @SerializedName 注解值，与目标 JSON 名匹配。
+     *
+     * 注解类通过宿主 classloader 加载（避免模块编译期依赖 gson）。
+     * 匹配时同时尝试 camelCase / snake_case / 大小写变体，增强鲁棒性。
+     */
+    private fun getFieldBySerializedName(obj: Any?, jsonName: String): Any? =
+        HookUtils.getFieldBySerializedName(obj, jsonName)
+
+    /** 生成字段名的各种命名变体（camelCase / snake_case / 大写） */
+    private fun buildNameVariants(name: String): Set<String> =
+        HookUtils.buildNameVariants(name)
+
+    /**
+     * 兼容混淆: 先尝试字段，再尝试无参 getter 方法（方法名等于候选名或 getXxx），
+     * 最后尝试 @SerializedName 注解反查（适配 40.0.0 全字段混淆）。
+     *
+     * 抖音 release 会把模型字段/方法混淆：39.x 靠 getter 兜底，而 40.0.0 连 getter 也
+     * 被移除（字段全部 public 直接访问，名字混淆为单字母），但 Gson 的 @SerializedName
+     * 注解保留了原始 JSON 名（如 play_addr_h264）。因此增加按注解值反查字段的机制。
+     * 注解类通过宿主 classloader 反射加载，避免编译期依赖 gson。
      */
     private fun objByNames(obj: Any?, names: List<String>): Any? {
         if (obj == null) return null
         for (n in names) {
             val f = getFieldDeep(obj, n)
+            if (f != null) return f
+        }
+        // @SerializedName 注解反查（40.0.0 字段混淆为单字母但注解保留 JSON 名）
+        for (n in names) {
+            val f = getFieldBySerializedName(obj, n)
             if (f != null) return f
         }
         try {

@@ -87,6 +87,12 @@ class SharePanelHook : BaseHook {
             "SideslipSharePanel",
             "ShareDialog",
             "ShareQrDialog",
+            // 新版抖音 40.0.0 CommandDialog 系列（sharefeed/backflow.command）
+            "ShareCommandDialog",
+            "ShareCommonCommandDialog",
+            "LongVideoShareCommandDialog",
+            "VideoShareCommandDialog",
+            "ShareBottomSheet",
             // 新版抖音 39.70+ R8 混淆
             "share_bottom_sheet",
             "C0994",  // yyds 分享面板处理类

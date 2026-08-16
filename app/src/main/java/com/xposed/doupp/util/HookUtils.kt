@@ -178,7 +178,84 @@ object HookUtils {
                 return null
             }
         }
+
+        // @SerializedName 注解反查（适配 40.0.0 全字段混淆：字段名变单字母，
+        // 但 Gson 注解保留 JSON 名，如 play_addr_h264 / cid / text 等）
+        return getFieldBySerializedName(obj, fieldName)
+    }
+
+    /**
+     * 通过 @SerializedName 注解反查字段值（适配 40.0.0 全字段混淆）。
+     *
+     * 40.0.0 中模型字段被 R8 混淆为单字母，但 Gson 的 @SerializedName 注解
+     * 保留了原始 JSON 名。遍历类的全部字段（含父类），读取 @SerializedName
+     * 注解值并与目标 JSON 名匹配。
+     *
+     * 注解类通过宿主 classloader 加载（避免模块编译期依赖 gson）。
+     */
+    @JvmStatic
+    fun getFieldBySerializedName(obj: Any?, jsonName: String): Any? {
+        if (obj == null) return null
+
+        val variants = buildNameVariants(jsonName)
+        val annClassName = "com.google.gson.annotations.SerializedName"
+        var annClass: Class<*>? = null
+        try {
+            annClass = Class.forName(annClassName, false, obj.javaClass.classLoader)
+        } catch (_: Throwable) {}
+
+        var clazz: Class<*>? = obj.javaClass
+        while (clazz != null) {
+            for (field in clazz.declaredFields) {
+                try {
+                    val annValue = if (annClass != null) {
+                        try {
+                            val ann = annClass.getMethod("value")
+                            // 用 Java 反射遍历注解，避免 Kotlin 平台类型问题
+                            var matched: Any? = null
+                            for (a in field.annotations) {
+                                if (annClass.isInstance(a)) { matched = a; break }
+                            }
+                            if (matched != null) ann.invoke(matched) as? String else null
+                        } catch (_: Throwable) { null }
+                    } else {
+                        field.declaredAnnotations.firstOrNull { a ->
+                            try { a.javaClass.name == annClassName } catch (_: Throwable) { false }
+                        }?.let { ann ->
+                            try {
+                                ann.javaClass.getMethod("value").invoke(ann) as? String
+                            } catch (_: Throwable) { null }
+                        }
+                    }
+                    if (annValue != null && variants.any { it.equals(annValue, ignoreCase = true) }) {
+                        field.isAccessible = true
+                        val value = field.get(obj)
+                        if (value != null) return value
+                    }
+                } catch (_: Throwable) {}
+            }
+            clazz = clazz.superclass
+        }
         return null
+    }
+
+    /** 生成字段名的各种命名变体（camelCase / snake_case / 大写） */
+    @JvmStatic
+    fun buildNameVariants(name: String): Set<String> {
+        val variants = mutableSetOf(name, name.lowercase(), name.uppercase())
+        // camelCase -> snake_case
+        val snake = name.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2").lowercase()
+        variants.add(snake)
+        variants.add(snake.uppercase())
+        // snake_case -> camelCase
+        if (name.contains('_')) {
+            val camel = name.split("_").filter { it.isNotEmpty() }
+                .mapIndexed { i, part -> if (i == 0) part.lowercase() else part.replaceFirstChar { it.uppercase() } }
+                .joinToString("")
+            variants.add(camel)
+            variants.add(camel.lowercase())
+        }
+        return variants
     }
 
     /**

@@ -453,7 +453,9 @@ object AdaptationManager {
         val feature = "VerticalViewPager"
         val candidates = listOf(
             "com.ss.android.ugc.aweme.feed.view.FlippableViewPager",
+            "com.ss.android.ugc.aweme.base.ui.FlippableViewPager",
             "com.ss.android.ugc.aweme.feed.view.RTMainFlippableViewPager",
+            "com.ss.android.ugc.aweme.homepage.perfopt.switchsmooth.ui.RTMainFlippableViewPager",
             "com.ss.android.ugc.aweme.feed.ui.FeedViewPager",
             "com.bytedance.ies.uikit.viewpager.VerticalViewPager",
             "androidx.viewpager.widget.ViewPager"

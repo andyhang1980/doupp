@@ -137,7 +137,7 @@ class VideoFilterHook : BaseHook {
     private fun getAwemeId(aweme: Any): String? {
         return try {
             val cls = aweme.javaClass
-            for (name in listOf("getAwemeId", "awemeId", "getItemId", "itemId", "getId", "id")) {
+            for (name in listOf("getAwemeId", "awemeId", "getItemId", "itemId", "getId", "getAid", "aid", "id")) {
                 try {
                     val m = cls.getDeclaredMethod(name)
                     m.isAccessible = true

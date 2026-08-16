@@ -30,7 +30,8 @@ object VersionCompat {
         390502 to "39.5.1",
         390503 to "39.5.2",
         39509900 to "39.5.99", // 用户指定的 39.5 版本
-        40000000 to "40.0.0"
+        40000000 to "40.0.0",
+        400001 to "40.0.0"     // 抖音 40.0.0 实际 versionCode
     )
 
     /**
@@ -125,7 +126,12 @@ object VersionCompat {
             "playAddrH264", "play_addr_h264",
             "playAddr265", "play_addr_265",
             "playAddrBytevc1", "play_addr_bytevc1",
-            "bitRateList", "bitrate_list"
+            "playAddrLowbr", "play_addr_lowbr",
+            "downloadAddr", "download_addr",
+            "newDownloadAddr", "new_download_addr",
+            "captionDownloadAddr", "caption_download_addr",
+            "bitRateList", "bitrate_list", "bit_rate",
+            "duration", "real_duration", "realDuration"
         )
         if (isV40Plus()) {
             base.add("playAddrList")
