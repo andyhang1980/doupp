@@ -1,6 +1,24 @@
 # DYPP 更新日志
 
-## v3.0.0 (2026-08-16)
+## v3.0.0 (2026-08-17)
+
+### 适配
+
+- **适配抖音 40.1.0**（versionCode 400100）：
+  - 反编译对比确认 40.1.0 与 40.0.0 结构完全一致，无需改动 Hook 代码
+  - Video 72 个 `@SerializedName` 字段映射与 40.0.0 完全相同（`play_addr -> a`、`play_addr_h264 -> d`、`download_addr -> v`、`bit_rate -> y`、`real_duration -> J` 等）
+  - Aweme：`aweme_id`/`aid`、`public Video video`、`getVideo()`、`getAid()` 保留
+  - UrlModel：`public List<String> urlList` 保留；BitRate：`bitRate`/`playAddr`/`playAddr265`/`playAddrBytevc1` 保留
+  - AutoPlayViewModel 结构兼容（static boolean / 非 static boolean / LiveData getter），`auto_play_key` 字符串仍存在，DexKit 可动态定位
+  - AutoPlayComponent：`triggerAutoPlayTask(String, String)` 双参数保留
+  - Comment：`CommentViewHolderOldStyle`、`vh/holders/CommentViewHolder` 均在
+  - 分享面板：`LongVideoShareCommandDialog`/`ShareCommonCommandDialog`/`VideoShareCommandDialog` 均在
+  - `FlippableViewPager` 仍在 `base/ui` 路径
+  - 版本检测补充 40.1.0 实际 versionCode 400100
+
+### 新增
+
+- **适配抖音 40.0.0**（versionCode 400001）：
 
 ### 新增
 
