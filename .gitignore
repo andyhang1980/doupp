@@ -17,3 +17,5 @@ local.properties
 
 
 keystore.jks
+keystore_v2.jks
+*.log
