@@ -25,12 +25,14 @@ class SettingsActivity : PreferenceActivity() {
             DouSettings.init(activity)
             bindPreferenceListeners()
             val sp = preferenceManager.sharedPreferences
-            // 全量同步框架 prefs -> 模块 prefs，确保 double_click_action 等
+            // 先把模块 prefs 同步到框架 prefs，让 UI 显示模块的真实值
+            //（否则设置页 UI 与模块实际状态可能不一致，如 auto_play UI 显示开但模块是关）。
+            sp?.let { DouSettings.syncFromModule(it) }
+            // 再全量同步框架 prefs -> 模块 prefs，确保 double_click_action 等
             // 上次会话已设但本次未再变更的值不会缺失（safePref 只在变更时镜像）
             sp?.let { DouSettings.syncFromFramework(it) }
             updateAdChildrenEnabled(sp?.getBoolean("remove_ad", true) ?: true)
             updateFilterChildrenEnabled(sp?.getBoolean("video_filter", false) ?: false)
-            updateAutoPlayChildrenEnabled(sp?.getBoolean("auto_play", false) ?: false)
         }
 
         private val filterChildKeys = arrayOf(
@@ -68,16 +70,6 @@ class SettingsActivity : PreferenceActivity() {
             }
         }
 
-        private val autoPlayChildKeys = arrayOf(
-            "auto_play_floating", "auto_play_hide"
-        )
-
-        private fun updateAutoPlayChildrenEnabled(enabled: Boolean) {
-            for (key in autoPlayChildKeys) {
-                findPreference(key)?.isEnabled = enabled
-            }
-        }
-
         private fun bindPreferenceListeners() {
             safePref("download_video") { DouSettings.setDownloadVideo(it as Boolean) }
             safePref("download_music") { DouSettings.setDownloadMusic(it as Boolean) }
@@ -112,7 +104,6 @@ class SettingsActivity : PreferenceActivity() {
             safePref("auto_play") { v ->
                 val on = v as Boolean
                 DouSettings.setAutoPlay(on)
-                updateAutoPlayChildrenEnabled(on)
             }
             safePref("auto_play_floating") { DouSettings.setAutoPlayFloating(it as Boolean) }
             safePref("auto_play_hide") { DouSettings.setAutoPlayHide(it as Boolean) }

@@ -3,6 +3,7 @@ package com.xposed.doupp.ui
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.Bundle
 import com.xposed.doupp.util.HookUtils
 
 /**
@@ -44,6 +45,7 @@ object DouSettings {
     const val KEY_AD_KEYWORDS = "ad_keywords"
     const val KEY_BLOCK_HOT_UPDATE = "block_hot_update"
     const val KEY_AUTO_PLAY = "auto_play"
+    const val KEY_AUTO_PLAY_BUTTON = "auto_play_button"
     const val KEY_AUTO_PLAY_FLOATING = "auto_play_floating"
     const val KEY_AUTO_PLAY_HIDE = "auto_play_hide"
     const val KEY_SAVE_COMMENT_MEDIA = "save_comment_media"
@@ -75,6 +77,7 @@ object DouSettings {
     private const val DEFAULT_BLOCK_AD_SDK = true
     private const val DEFAULT_BLOCK_HOT_UPDATE = true
     private const val DEFAULT_AUTO_PLAY = false
+    private const val DEFAULT_AUTO_PLAY_BUTTON = false
     private const val DEFAULT_SAVE_COMMENT_MEDIA = true
     private const val DEFAULT_SAVE_DIRECTORY = "Dou+"
     private const val DEFAULT_VIDEO_FILTER = false
@@ -129,9 +132,21 @@ object DouSettings {
     @Volatile
     private var autoPlayRuntime: Boolean? = null
 
+    /**
+     * 悬浮按钮独立开关状态（与设置的 auto_play 完全独立）。
+     * 当悬浮按钮显示时，由它决定是否自动连播；按钮隐藏时回到设置值。
+     */
+    @Volatile
+    private var autoPlayButtonRuntime: Boolean? = null
+
     /** 自动播放状态的独立世界可读写文件路径（位于模块 data 目录） */
     private fun autoPlayFile(): java.io.File {
         return java.io.File("/data/data/$MODULE_PACKAGE/shared_prefs/.dou_autoplay")
+    }
+
+    /** 悬浮按钮独立状态的持久化文件路径（与设置 auto_play 分开） */
+    private fun autoPlayButtonFile(): java.io.File {
+        return java.io.File("/data/data/$MODULE_PACKAGE/shared_prefs/.dou_autoplay_btn")
     }
 
     /**
@@ -321,7 +336,12 @@ object DouSettings {
                 return
             }
             val editor = sp.edit()
+            var count = 0
             for ((k, v) in all) {
+                // 只填充模块 prefs 中缺失的 key，不覆盖已存在的值。
+                // 否则框架 prefs 的旧默认值会覆盖用户显式设置（如 auto_play），
+                // 导致抖音读到错误的开关状态。
+                if (sp.contains(k)) continue
                 when (v) {
                     is Boolean -> editor.putBoolean(k, v)
                     is String -> editor.putString(k, v)
@@ -333,12 +353,44 @@ object DouSettings {
                         editor.putStringSet(k, v as Set<String>)
                     }
                 }
+                count++
             }
             editor.apply()
             share()
-            HookUtils.log("DouSettings: syncFromFramework 同步 ${all.size} 个值到模块 prefs")
+            HookUtils.log("DouSettings: syncFromFramework 补充 ${count} 个缺失值到模块 prefs")
         } catch (t: Throwable) {
             HookUtils.log("DouSettings: syncFromFramework 异常: ${t.message}")
+        }
+    }
+
+    /**
+     * 把模块 prefs 同步到设置页框架 prefs，让 UI 显示模块的真实值。
+     * 解决"设置页 UI 显示开启但模块实际是关闭"的两套 prefs 不同步问题。
+     * 在打开设置页时调用。
+     */
+    fun syncFromModule(frameworkSp: SharedPreferences) {
+        try {
+            val sp = prefs ?: return
+            val editor = frameworkSp.edit()
+            var count = 0
+            for ((k, v) in sp.all) {
+                when (v) {
+                    is Boolean -> editor.putBoolean(k, v)
+                    is String -> editor.putString(k, v)
+                    is Int -> editor.putInt(k, v)
+                    is Long -> editor.putLong(k, v)
+                    is Float -> editor.putFloat(k, v)
+                    is Set<*> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        editor.putStringSet(k, v as Set<String>)
+                    }
+                }
+                count++
+            }
+            editor.apply()
+            HookUtils.log("DouSettings: syncFromModule 同步 ${count} 个值到框架 prefs")
+        } catch (t: Throwable) {
+            HookUtils.log("DouSettings: syncFromModule 异常: ${t.message}")
         }
     }
 
@@ -752,13 +804,11 @@ object DouSettings {
         try {
             val context = com.xposed.doupp.util.ContextHelper.getContext()
             if (context == null) {
-                HookUtils.log("DouSettings: [DBG] tryInitFromProvider context==null local=$localContext")
                 return false
             }
             val b = context.contentResolver.call(
                 Uri.parse("content://$MODULE_PACKAGE.settings"), "getAll", null, null
             )
-            HookUtils.log("DouSettings: [DBG] ContentProvider call 返回 b=${if (b == null) "null" else "size=${b.size()}"} local=$localContext")
             if (b != null && !b.isEmpty) {
                 providerBundle = b
                 HookUtils.log("DouSettings: ContentProvider 初始化成功 (keys=${b.size()})")
@@ -766,8 +816,6 @@ object DouSettings {
             }
         } catch (t: Throwable) {
             HookUtils.log("DouSettings: ContentProvider 方式失败: ${t.javaClass.name}: ${t.message}")
-            val st = t.stackTrace?.take(4)?.joinToString(" | ") { "${it.className}.${it.methodName}(${it.lineNumber})" } ?: ""
-            HookUtils.log("DouSettings: [DBG] stack: $st")
         }
         return false
     }
@@ -783,10 +831,62 @@ object DouSettings {
             if (b != null) {
                 synchronized(this) { providerBundle = b }
                 HookUtils.log("DouSettings: ContentProvider 刷新成功 (keys=${b.size()})")
+                // 把 provider 权威值同步到抖音本地 prefs，供下次进程启动早期（provider 未就绪时）兜底使用。
+                // 跨 UID 直接读模块文件被 SELinux 拦截，本地 prefs 是唯一可靠的启动早期通道。
+                syncProviderToLocal(b)
             }
         } catch (t: Throwable) {
             HookUtils.log("DouSettings: ContentProvider 刷新失败: ${t.javaClass.name}: ${t.message}")
         }
+    }
+
+    /**
+     * 把 ContentProvider 读取到的权威设置写入抖音本地 prefs（LOCAL_PREFS_NAME）。
+     * 抖音进程下次启动时，即使模块进程/ContentProvider 尚未就绪，
+     * isAutoPlayEnabled() 的本地 fallback 也能读到正确的值，避免官方误取消连播。
+     */
+    private fun syncProviderToLocal(b: Bundle) {
+        try {
+            val ctx = localContext ?: com.xposed.doupp.util.ContextHelper.getContext() ?: return
+            val local = ctx.getSharedPreferences(LOCAL_PREFS_NAME, Context.MODE_PRIVATE)
+            val editor = local.edit()
+            var count = 0
+            val keys = listOf(
+                KEY_AUTO_PLAY, KEY_AUTO_PLAY_FLOATING, KEY_AUTO_PLAY_HIDE,
+                KEY_DOWNLOAD_VIDEO, KEY_DOWNLOAD_MUSIC, KEY_DOWNLOAD_IMAGE,
+                KEY_COPY_TEXT, KEY_REMOVE_AD, KEY_SKIP_SPLASH_AD,
+                KEY_BLOCK_FEED_KEYWORDS, KEY_BLOCK_SHOPPING, KEY_HIDE_AD_LABELS,
+                KEY_BLOCK_AD_SDK, KEY_BLOCK_HOT_UPDATE, KEY_SAVE_COMMENT_MEDIA,
+                KEY_VIDEO_FILTER, KEY_FILTER_LIVE, KEY_FILTER_IMAGE,
+                KEY_FILTER_AD, KEY_FILTER_LONG_VIDEO, KEY_BOOKMARK_ENABLED,
+                KEY_BOOKMARK_COMMENT, KEY_BOOKMARK_VIDEO, KEY_BOOKMARK_PROFILE
+            )
+            for (key in keys) {
+                if (b.containsKey(key)) {
+                    when (val v = b.get(key)) {
+                        is Boolean -> editor.putBoolean(key, v)
+                        is Int -> editor.putInt(key, v)
+                        is Long -> editor.putLong(key, v)
+                        is String -> editor.putString(key, v)
+                        else -> {}
+                    }
+                    count++
+                }
+            }
+            // 字符串/整数类设置也一并同步
+            for (key in listOf(KEY_SAVE_DIRECTORY, KEY_AD_KEYWORDS, KEY_FILTER_KEYWORDS, KEY_LONG_VIDEO_SECONDS, KEY_DOUBLE_CLICK_ACTION)) {
+                if (b.containsKey(key)) {
+                    when (val v = b.get(key)) {
+                        is String -> editor.putString(key, v)
+                        is Int -> editor.putInt(key, v)
+                        else -> {}
+                    }
+                    count++
+                }
+            }
+            editor.apply()
+            if (count > 0) HookUtils.log("DouSettings: 已同步 $count 个设置到本地 prefs")
+        } catch (_: Throwable) {}
     }
 
     // ==================== 下载功能开关 ====================
@@ -863,7 +963,14 @@ object DouSettings {
     private const val AUTOPLAY_PROVIDER_TTL_MS = 1000L
 
     fun isAutoPlayEnabled(): Boolean {
-        // 1. 运行期内存值（悬浮按钮同进程内切换立即生效，仅会话级，不跨进程）。
+        // 0. 悬浮按钮显示时，由按钮独立开关状态决定（不再读设置的 auto_play）
+        if (autoPlayButtonShown) {
+            val btnState = isAutoPlayButtonEnabled()
+            HookUtils.log("DouSettings: isAutoPlayEnabled -> $btnState (悬浮按钮)")
+            return btnState
+        }
+
+        // 1. 运行期内存值（设置页/悬浮按钮同进程内切换立即生效，仅会话级，不跨进程）。
         autoPlayRuntime?.let { return it }
 
         // 2. ContentProvider（跨进程权威源）。带 1s 缓存避免频繁 IPC。
@@ -884,6 +991,50 @@ object DouSettings {
         val fromPrefs = getPrefs().getBoolean(KEY_AUTO_PLAY, DEFAULT_AUTO_PLAY)
         HookUtils.log("DouSettings: isAutoPlayEnabled -> $fromPrefs (prefs fallback)")
         return fromPrefs
+    }
+
+    // ==================== 悬浮按钮独立开关 ====================
+
+    /** 悬浮按钮当前是否显示（由 AutoPlayButtonHook 在注入/移除时维护） */
+    @Volatile
+    private var autoPlayButtonShown = false
+
+    fun setAutoPlayButtonShown(shown: Boolean) {
+        autoPlayButtonShown = shown
+    }
+
+    fun isAutoPlayButtonShown(): Boolean = autoPlayButtonShown
+
+    /**
+     * 悬浮按钮的独立开关状态。优先运行期内存值，其次持久化文件。
+     * 与设置里的 auto_play 完全独立，互不干扰。
+     */
+    fun isAutoPlayButtonEnabled(): Boolean {
+        autoPlayButtonRuntime?.let { return it }
+        try {
+            val f = autoPlayButtonFile()
+            if (f.exists()) {
+                val v = f.readText().trim()
+                if (v == "1" || v == "0") return v == "1"
+            }
+        } catch (_: Throwable) {}
+        return DEFAULT_AUTO_PLAY_BUTTON
+    }
+
+    fun setAutoPlayButton(enabled: Boolean) {
+        autoPlayButtonRuntime = enabled
+        HookUtils.log("DouSettings: setAutoPlayButton($enabled)")
+        try {
+            val f = autoPlayButtonFile()
+            f.parentFile?.let {
+                it.setReadable(true, false)
+                it.setExecutable(true, false)
+                it.setWritable(true, false)
+            }
+            f.writeText(if (enabled) "1" else "0")
+            f.setReadable(true, false)
+            f.setWritable(true, false)
+        } catch (_: Throwable) {}
     }
 
     /** 通过 ContentProvider 读取 KEY_AUTO_PLAY。返回 null 表示不可用。 */
@@ -953,6 +1104,7 @@ object DouSettings {
     fun setAutoPlay(enabled: Boolean) {
         // 内存立即生效
         autoPlayRuntime = enabled
+        HookUtils.log("DouSettings: setAutoPlay($enabled)")
         // 持久化到独立世界可读写文件（抖音进程内切换也能保存）
         try {
             val f = autoPlayFile()

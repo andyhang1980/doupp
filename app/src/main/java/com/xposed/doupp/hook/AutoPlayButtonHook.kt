@@ -51,6 +51,8 @@ class AutoPlayButtonHook : BaseHook {
             XposedBridge.hookAllMethods(activityClass, "onResume", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val activity = param.thisObject as? Activity ?: return
+                    // 进入新 Activity 时重置 session 隐藏（长按隐藏仅维持到当前 Activity 结束）
+                    sessionHide = false
                     mainHandler.postDelayed({ tryInject(activity) }, 600)
                     startPeriodicCheck(activity)
                 }
@@ -95,23 +97,25 @@ class AutoPlayButtonHook : BaseHook {
                     content.findViewWithTag<View>(BTN_TAG)?.let {
                         content.removeView(it)
                     }
+                    DouSettings.setAutoPlayButtonShown(false)
                     return@post
                 }
-
-                // 每次进入新 Activity 重置 session 隐藏（长按隐藏仅维持到当前 Activity 结束）
-                sessionHide = false
 
                 val hide = DouSettings.isAutoPlayHide()
                 val existing = content.findViewWithTag<View>(BTN_TAG)
                 HookUtils.log("$TAG: tryInject hide=$hide sessionHide=$sessionHide existing=${existing != null}")
-                if (hide) {
+                if (hide || sessionHide) {
                     if (existing != null) {
                         content.removeView(existing)
-                        HookUtils.log("$TAG: 隐藏设置生效，移除按钮")
+                        HookUtils.log("$TAG: 隐藏设置/会话隐藏生效，移除按钮")
                     }
+                    DouSettings.setAutoPlayButtonShown(false)
                     return@post
                 }
-                if (existing != null) return@post
+                if (existing != null) {
+                    DouSettings.setAutoPlayButtonShown(true)
+                    return@post
+                }
 
                 val density = activity.resources.displayMetrics.density
                 val btnSize = (48 * density).toInt()
@@ -148,6 +152,7 @@ class AutoPlayButtonHook : BaseHook {
                 }
 
                 content.addView(btn, lp)
+                DouSettings.setAutoPlayButtonShown(true)
                 HookUtils.log("$TAG: 已注入自动播放按钮 (floating=${DouSettings.isAutoPlayFloating()})")
             } catch (t: Throwable) {
                 HookUtils.log("$TAG: tryInject 失败: ${t.message}")
@@ -168,7 +173,7 @@ class AutoPlayButtonHook : BaseHook {
                 isFocusable = true
                 isLongClickable = true
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                background = createCircleBg(context, DouSettings.isAutoPlayEnabled())
+                background = createCircleBg(context, DouSettings.isAutoPlayButtonEnabled())
                 val pad = (12 * density).toInt()
                 setPadding(pad, pad, pad, pad)
                 updateState(this)
@@ -220,11 +225,11 @@ class AutoPlayButtonHook : BaseHook {
             }
         }.also { btn ->
             btn.setOnClickListener {
-                DouSettings.setAutoPlay(!DouSettings.isAutoPlayEnabled())
+                DouSettings.setAutoPlayButton(!DouSettings.isAutoPlayButtonEnabled())
                 updateState(btn)
-                val on = DouSettings.isAutoPlayEnabled()
+                val on = DouSettings.isAutoPlayButtonEnabled()
                 HookUtils.showToast(context, if (on) "自动播放: 开" else "自动播放: 关")
-                HookUtils.log("$TAG: 自动播放切换为 $on")
+                HookUtils.log("$TAG: 悬浮按钮自动播放切换为 $on")
             }
             btn.setOnLongClickListener {
                 longPressedViews.put(btn, true)
@@ -265,7 +270,7 @@ class AutoPlayButtonHook : BaseHook {
     }
 
     private fun updateState(btn: ImageView) {
-        val on = DouSettings.isAutoPlayEnabled()
+        val on = DouSettings.isAutoPlayButtonEnabled()
         btn.background = createCircleBg(btn.context, on)
         btn.setImageDrawable(TriangleDrawable(if (on) Color.WHITE else 0x99FFFFFF.toInt()))
     }

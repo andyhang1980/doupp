@@ -189,8 +189,9 @@ class AutoPlayControllerHook : BaseHook {
                 typeField.isAccessible = true
                 val tv = typeField.get(aweme)
                 if (tv is Number) {
-                    if (tv.toInt() == 101) return true
-                    return false
+                    val live = tv.toInt() == 101
+                    if (live) HookUtils.log("$TAG: isCurrentAwemeLive=true (awemeType=${tv})")
+                    return live
                 }
             } catch (_: Throwable) {}
             // 明确直播标志兜底
@@ -199,7 +200,10 @@ class AutoPlayControllerHook : BaseHook {
                     val field = cls.getDeclaredField(f)
                     field.isAccessible = true
                     val v = field.get(aweme)
-                    if (v is Boolean && v) return true
+                    if (v is Boolean && v) {
+                        HookUtils.log("$TAG: isCurrentAwemeLive=true (字段 $f=true)")
+                        return true
+                    }
                 } catch (_: Throwable) {}
             }
             false
