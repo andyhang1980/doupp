@@ -4,14 +4,16 @@ import com.xposed.doupp.util.AdaptationManager
 import com.xposed.doupp.util.ClassFinder
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.UrlParser
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
 
 /**
  * 下载流程 Hook — 精准拦截
  *
- * 原则: 只 Hook 设置 URL 的方法，不拦截普通网络请求
- * 只在检测到 playwm 时替换，否则直接放行
+ * 策略:
+ * 1. 拦截含 playwm 的 URL → 直接替换（旧版抖音）
+ * 2. 拦截抖音视频 CDN 域名的 URL → 交给 UrlParser 处理（新版抖音 40.x+）
+ * 3. 拦截 aweme API 播放接口 URL → 处理 watermark 参数
  *
  * 自动适配策略:
  * 优先使用 AdaptationManager 缓存的类名，找不到时回退到硬编码候选列表
@@ -69,9 +71,12 @@ class DownloadHook : BaseHook {
                                 try {
                                     for (i in param.args.indices) {
                                         val arg = param.args[i]
-                                        if (arg is String && arg.contains("playwm")) {
-                                            param.args[i] = UrlParser.getNoWatermarkUrl(arg)
-                                            HookUtils.log("$TAG: Cronet ${method.name} URL 已替换")
+                                        if (arg is String && isVideoDownloadUrl(arg)) {
+                                            val cleaned = UrlParser.getNoWatermarkUrl(arg)
+                                            if (cleaned != arg) {
+                                                param.args[i] = cleaned
+                                                HookUtils.log("$TAG: Cronet ${method.name} URL 已替换")
+                                            }
                                         }
                                     }
                                 } catch (_: Throwable) {}
@@ -119,9 +124,9 @@ class DownloadHook : BaseHook {
                         XposedBridge.hookMethod(proceedMethod, object : XC_MethodHook() {
                             override fun beforeHookedMethod(param: MethodHookParam) {
                                 try {
-                                    val request = param.args[0]
+                                    val request = param.args[0] ?: return
                                     val urlStr = getUrlFromRequest(request)
-                                    if (urlStr == null || !urlStr.contains("playwm")) return
+                                    if (urlStr == null || !isVideoDownloadUrl(urlStr)) return
 
                                     replaceUrlInOkHttpRequest(request, classLoader)
                                 } catch (_: Throwable) {}
@@ -157,7 +162,7 @@ class DownloadHook : BaseHook {
             val httpUrl = urlMethod.invoke(request) ?: return
             val urlStr = httpUrl.toString()
 
-            if (!urlStr.contains("playwm")) return
+            if (!isVideoDownloadUrl(urlStr)) return
 
             val newUrlStr = UrlParser.getNoWatermarkUrl(urlStr)
             if (newUrlStr == urlStr) return
@@ -179,5 +184,29 @@ class DownloadHook : BaseHook {
         } catch (t: Throwable) {
             HookUtils.log("$TAG: 替换 OkHttp URL 失败: ${t.message}")
         }
+    }
+
+    /**
+     * 判断 URL 是否为需要处理的视频下载 URL
+     *
+     * 覆盖旧版和新版抖音的视频 URL 模式:
+     * - playwm (旧版水印 URL)
+     * - watermark=1 (新版抖音参数水印)
+     * - aweme/v1/play (播放接口)
+     * - douyinvod.com / tos-cn-v / amemv.com (视频 CDN)
+     */
+    private fun isVideoDownloadUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        // 旧版: playwm 路径
+        if (lower.contains("playwm")) return true
+        // 新版: watermark 参数
+        if (lower.contains("watermark=1")) return true
+        // 播放接口
+        if (lower.contains("amemv.com/aweme/v1/play")) return true
+        // 视频 CDN 域名
+        if (lower.contains("douyinvod.com") && lower.contains("/play")) return true
+        if (lower.contains("tos-cn-v") && lower.contains("/play")) return true
+        if (lower.contains("bytevcloudcdn.com") && lower.contains("/play")) return true
+        return false
     }
 }

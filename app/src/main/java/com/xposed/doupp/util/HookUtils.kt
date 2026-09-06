@@ -3,9 +3,9 @@ package com.xposed.doupp.util
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
+import com.xposed.doupp.compat.XposedHelpers
 import java.lang.reflect.Member
 
 /** hook 回调参数类型别名，等价于 LSPilot �?HookParam */
@@ -45,24 +45,13 @@ object HookUtils {
 
     /**
      * 输出日志
-     * 优先使用 XposedBridge.log（日志写入 LSPosed 日志），
-     * 模块自身进程（设置页等，非 Xposed 环境）下 XposedBridge 类不可用，
-     * 直接引用会抛 NoClassDefFoundError 崩溃，因此用反射 + android.util.Log 兜底。
+     * 宿主进程内由 compat 层转发到 LSPosed 日志；
+     * 模块自身进程（设置页等，非 Xposed 环境）下回退 android.util.Log。
      *
      * @param message 日志内容
      */
     fun log(message: String) {
-        try {
-            // 反射调用 XposedBridge.log，避免在非 Xposed 进程中直接引用类
-            Class.forName("de.robv.android.xposed.XposedBridge")
-                .getMethod("log", String::class.java)
-                .invoke(null, "[$TAG] $message")
-        } catch (t: Throwable) {
-            try {
-                android.util.Log.i(TAG, message)
-            } catch (_: Throwable) {
-            }
-        }
+        XposedBridge.log(message)
     }
 
     /**

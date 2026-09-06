@@ -1,5 +1,7 @@
 package com.xposed.doupp
 
+import android.content.Context
+import android.os.Build
 import com.xposed.doupp.hook.AdHook
 import com.xposed.doupp.hook.AutoPlayButtonHook
 import com.xposed.doupp.hook.AutoPlayControllerHook
@@ -14,18 +16,19 @@ import com.xposed.doupp.hook.ImmersivePlayHook
 import com.xposed.doupp.hook.LivePhotoHook
 import com.xposed.doupp.hook.ShareHook
 import com.xposed.doupp.hook.SharePanelHook
+import com.xposed.doupp.hook.SparkHook
 import com.xposed.doupp.hook.VideoFilterHook
+import com.xposed.doupp.compat.XposedBridge
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.AdaptationManager
 import com.xposed.doupp.util.ContextHelper
 import com.xposed.doupp.util.DexKitManager
 import com.xposed.doupp.util.HookUtils
-import de.robv.android.xposed.IXposedHookLoadPackage
-import de.robv.android.xposed.callbacks.XC_LoadPackage
-import android.content.Context
+import io.github.libxposed.api.XposedModule
+import io.github.libxposed.api.XposedModuleInterface
 
 /**
- * Dou+ - Xposed 模块入口
+ * Dou+ - Xposed 模块入口 (LibXposed API 101)
  *
  * 作用域: com.ss.android.ugc.aweme (抖音)
  * 功能:
@@ -40,45 +43,95 @@ import android.content.Context
  * - 适配过程中显示 Toast 提示
  * - 适配结果缓存到文件，下次启动直接读取
  */
-class MainHook : IXposedHookLoadPackage {
+class MainHook : XposedModule() {
 
     companion object {
         const val LOG_TAG = "Dou+"
         const val TARGET_PACKAGE = "com.ss.android.ugc.aweme"
-        const val MODULE_VERSION = "3.0.0"
+        const val MALL_PACKAGE = "com.ss.android.ugc.livelite"
+        val SUPPORTED_PACKAGES = setOf(TARGET_PACKAGE, MALL_PACKAGE)
+        const val MODULE_VERSION = "3.0.1"
     }
 
-    override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (lpparam.packageName != TARGET_PACKAGE) return
+    private fun isSupportedPackage(name: String): Boolean = name in SUPPORTED_PACKAGES
+
+    override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
+        // 注入 LibXposed 接口到 compat 层
+        XposedBridge.attach(this)
+        HookUtils.log("Dou+ v$MODULE_VERSION (LibXposed API ${getApiVersion()}) 模块加载")
+        HookUtils.log("LSPosed: ${getFrameworkName()} v${getFrameworkVersion()} (${getFrameworkVersionCode()})")
+    }
+
+    override fun onPackageLoaded(param: XposedModuleInterface.PackageLoadedParam) {
+        val packageName = param.getPackageName()
+        if (!isSupportedPackage(packageName)) return
+        XposedBridge.attach(this)
 
         // 只在主进程安装 Hook（避免子进程重复安装）
-        if (lpparam.processName != TARGET_PACKAGE &&
-            !lpparam.processName.startsWith("${TARGET_PACKAGE}:main")) {
-            HookUtils.log("非主进程，跳过: ${lpparam.processName}")
+        val processName = android.os.Process.myProcessName()
+        if (processName != packageName && !processName.startsWith("$packageName:main")) {
+            HookUtils.log("非主进程，跳过: $processName")
             return
         }
 
         HookUtils.log("========== Dou+ v$MODULE_VERSION ==========")
-        HookUtils.log("模块加载中... 包名: ${lpparam.packageName}")
-        HookUtils.log("进程名: ${lpparam.processName}")
-
-        logLSPosedVersion()
-        logDouyinVersion(lpparam)
+        HookUtils.log("包名: ${param.getPackageName()}, 进程: $processName")
 
         try {
             // 初始化 DexKit：传入宿主 apk 路径，供各 Hook 运行时定位混淆类/方法
-            DexKitManager.init(lpparam.appInfo.sourceDir)
+            DexKitManager.init(param.getApplicationInfo().sourceDir)
 
             // 初始化 DouSettings — 跨进程读取配置
             DouSettings.initForHookProcess()
             HookUtils.log("DouSettings 初始化完成")
 
+            // 获取类加载器（API 29+ 可用；低版本回退到 onPackageReady）
+            val classLoader = if (Build.VERSION.SDK_INT >= 29) {
+                try { param.getDefaultClassLoader() } catch (_: Throwable) { null }
+            } else {
+                null
+            }
+            if (classLoader != null) {
+                installHooks(classLoader)
+            }
+        } catch (t: Throwable) {
+            HookUtils.log("模块加载失败: ${t.message}")
+            HookUtils.log("堆栈: ${t.stackTraceToString().take(300)}")
+        }
+    }
+
+    override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
+        val packageName = param.getPackageName()
+        if (!isSupportedPackage(packageName)) return
+        XposedBridge.attach(this)
+
+        val processName = android.os.Process.myProcessName()
+        if (processName != packageName && !processName.startsWith("$packageName:main")) {
+            return
+        }
+        installHooks(param.getClassLoader())
+    }
+
+    /**
+     * 初始化 Hook（幂等：只在首次调用时执行）
+     */
+    @Volatile
+    private var hookInitialized = false
+
+    private fun installHooks(classLoader: ClassLoader) {
+        if (hookInitialized) return
+        synchronized(this) {
+            if (hookInitialized) return
+            hookInitialized = true
+
+            HookUtils.log("使用 ClassLoader: ${classLoader.javaClass.name}")
+
             // 初始化 ContextHelper — 会 Hook Application.attach/onCreate
-            ContextHelper.init(lpparam)
+            ContextHelper.init(classLoader)
 
             // 策略1: 尝试立即安装（只安装不依赖 Application 的 Hook）
             val hooks = createHooks()
-            tryInstallHooks(hooks, lpparam.classLoader, "立即安装")
+            tryInstallHooks(hooks, classLoader, "立即安装")
 
             // 策略2: 注册延迟安装回调
             ContextHelper.onApplicationReady { realClassLoader, context ->
@@ -101,9 +154,6 @@ class MainHook : IXposedHookLoadPackage {
             }
 
             HookUtils.log("==============================================")
-        } catch (t: Throwable) {
-            HookUtils.log("模块加载失败: ${t.message}")
-            HookUtils.log("堆栈: ${t.stackTraceToString().take(300)}")
         }
     }
 
@@ -165,6 +215,7 @@ class MainHook : IXposedHookLoadPackage {
             DoubleClickHook(),      // 双击屏幕自定义行为（评论/分享/点赞/无操作）
             ImmersivePlayHook(),    // 沉浸式纯净播放（独立开关，默认关闭）+ 暂停悬浮下载
             BookmarkHook(),         // 书签：评论/作品/主页收藏 + 新回复/新作品探测
+            SparkHook(),            // 自动续火花（独立开关，默认关闭）
         )
     }
 
@@ -195,40 +246,5 @@ class MainHook : IXposedHookLoadPackage {
         }
 
         HookUtils.log("[$phase] 完成: 成功=$successCount, 失败=$failCount")
-    }
-
-    /**
-     * 记录 LSPosed 版本信息
-     */
-    private fun logLSPosedVersion() {
-        try {
-            val spClass = Class.forName("android.os.SystemProperties")
-            val getMethod = spClass.getMethod("get", String::class.java, String::class.java)
-            val lsposedVersion = getMethod.invoke(null, "persist.lsposed.version", "unknown") as String
-            val apiVersion = getMethod.invoke(null, "persist.lsposed.api", "unknown") as String
-            if (lsposedVersion != "unknown") {
-                HookUtils.log("LSPosed 版本: $lsposedVersion, API: $apiVersion")
-            } else {
-                HookUtils.log("LSPosed 版本: 未能检测 (可能是 LSPosed 2.0.x)")
-            }
-        } catch (_: Throwable) {
-            HookUtils.log("LSPosed 版本检测跳过")
-        }
-    }
-
-    /**
-     * 记录抖音版本信息
-     */
-    private fun logDouyinVersion(lpparam: XC_LoadPackage.LoadPackageParam) {
-        try {
-            val context = ContextHelper.getContext()
-            if (context != null) {
-                val pm = context.packageManager
-                val info = pm.getPackageInfo(lpparam.packageName, 0)
-                HookUtils.log("抖音版本: ${info.versionName} (${info.versionCode})")
-            }
-        } catch (_: Throwable) {
-            // Context 尚未就绪是正常的，跳过
-        }
     }
 }

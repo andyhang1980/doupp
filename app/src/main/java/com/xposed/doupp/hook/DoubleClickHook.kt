@@ -7,9 +7,9 @@ import android.view.View
 import android.view.ViewGroup
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.HookUtils
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
+import com.xposed.doupp.compat.XposedHelpers
 
 /**
  * 双击行为 Hook — 自定义双击视频播放区域的行为
@@ -43,6 +43,10 @@ class DoubleClickHook : BaseHook {
 
         @Volatile
         private var lastDownY = 0f
+
+        /** 上一次已处理的触摸序列 downTime，用于去重（抖音可能对同一次触摸派发多次 ACTION_DOWN） */
+        @Volatile
+        private var lastProcessedDownTime = -1L
 
         @Volatile
         private var lastPrefsDbg = 0L
@@ -116,6 +120,11 @@ class DoubleClickHook : BaseHook {
 
         val ev = param.args[0] as? MotionEvent ?: return
         if (ev.action != MotionEvent.ACTION_DOWN) return
+
+        // 去重：同一次物理触摸（相同 downTime）可能被 dispatchTouchEvent 多次派发，
+        // 只处理第一个 ACTION_DOWN，避免误判为双击。
+        if (ev.downTime == lastProcessedDownTime) return
+        lastProcessedDownTime = ev.downTime
 
         val now = System.currentTimeMillis()
         val x = ev.x

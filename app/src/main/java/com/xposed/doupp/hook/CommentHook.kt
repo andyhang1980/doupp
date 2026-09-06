@@ -7,8 +7,8 @@ import com.xposed.doupp.util.ContextHelper
 import com.xposed.doupp.util.DexKitManager
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.MediaDownloader
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
 
 class CommentHook : BaseHook {
 
@@ -60,6 +60,7 @@ class CommentHook : BaseHook {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     try {
                         val vh = param.thisObject
+                        if (vh == null) return
                         if (vh is androidx.recyclerview.widget.RecyclerView.ViewHolder) {
                             addImageSaveHandler(vh.itemView)
                         } else {

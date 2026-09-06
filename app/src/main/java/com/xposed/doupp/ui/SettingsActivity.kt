@@ -112,6 +112,8 @@ class SettingsActivity : PreferenceActivity() {
             safePref("bookmark_comment") { DouSettings.setCommentBookmark(it as Boolean) }
             safePref("bookmark_video") { DouSettings.setVideoBookmark(it as Boolean) }
             safePref("bookmark_profile") { DouSettings.setProfileBookmark(it as Boolean) }
+            safePref("spark_enabled") { DouSettings.setSparkEnabled(it as Boolean) }
+            safePref("spark_message") { DouSettings.setSparkMessage(it as String) }
             findPreference("telegram")?.setOnPreferenceClickListener {
                 openTelegram()
                 true

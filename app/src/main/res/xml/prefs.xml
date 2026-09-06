@@ -186,7 +186,7 @@
             android:key="auto_play_hide"
             android:title="@string/pref_auto_play_hide_title"
             android:summary="@string/pref_auto_play_hide_summary"
-            android:defaultValue="false" />
+            android:defaultValue="true" />
 
     </PreferenceCategory>
 
@@ -230,6 +230,24 @@
             android:title="@string/pref_immersive_mode_title"
             android:summary="@string/pref_immersive_mode_summary"
             android:defaultValue="false" />
+
+    </PreferenceCategory>
+
+    <!-- ==================== 自动续火花 ==================== -->
+    <PreferenceCategory android:title="@string/category_spark">
+
+        <CheckBoxPreference
+            android:key="spark_enabled"
+            android:title="@string/pref_spark_enabled_title"
+            android:summary="@string/pref_spark_enabled_summary"
+            android:defaultValue="false" />
+
+        <EditTextPreference
+            android:key="spark_message"
+            android:title="@string/pref_spark_message_title"
+            android:summary="@string/pref_spark_message_summary"
+            android:defaultValue="🔥"
+            android:dependency="spark_enabled" />
 
     </PreferenceCategory>
 

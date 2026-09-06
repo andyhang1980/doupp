@@ -6,8 +6,8 @@ import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.DexKitManager
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.MediaCache
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 

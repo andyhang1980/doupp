@@ -22,8 +22,8 @@ import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.MediaCache
 import com.xposed.doupp.util.MediaDownloader
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
 import java.lang.ref.WeakReference
 import java.lang.reflect.Modifier
 import java.util.Collections
@@ -112,7 +112,7 @@ class ImmersivePlayHook : BaseHook {
 
     private fun installActivityLifecycleHooks(classLoader: ClassLoader) {
         val activityClass = try {
-            de.robv.android.xposed.XposedHelpers.findClass("android.app.Activity", classLoader)
+            com.xposed.doupp.compat.XposedHelpers.findClass("android.app.Activity", classLoader)
         } catch (_: Throwable) {
             android.app.Activity::class.java
         }
@@ -174,7 +174,7 @@ class ImmersivePlayHook : BaseHook {
         var hooked = 0
         for (className in engineClasses) {
             try {
-                val clazz = de.robv.android.xposed.XposedHelpers.findClass(className, classLoader)
+                val clazz = com.xposed.doupp.compat.XposedHelpers.findClass(className, classLoader)
                 hooked += hookEngineClass(clazz)
                 HookUtils.log("$TAG: 播放器类挂载 $className")
             } catch (t: Throwable) {
@@ -190,7 +190,7 @@ class ImmersivePlayHook : BaseHook {
                 for (name in candidates) {
                     if (!name.contains("ttvideoengine") && !name.contains("player")) continue
                     try {
-                        val clazz = de.robv.android.xposed.XposedHelpers.findClass(name, classLoader)
+                        val clazz = com.xposed.doupp.compat.XposedHelpers.findClass(name, classLoader)
                         hooked += hookEngineClass(clazz)
                         HookUtils.log("$TAG: DexKit 播放器类 $name")
                     } catch (_: Throwable) {}
@@ -307,7 +307,7 @@ class ImmersivePlayHook : BaseHook {
         }
     }
 
-    private fun lastInteger(values: Array<Any>): Int? {
+    private fun lastInteger(values: Array<Any?>): Int? {
         for (i in values.indices.reversed()) {
             val v = values[i]
             if (v is Int) return v

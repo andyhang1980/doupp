@@ -185,26 +185,33 @@ object UrlParser {
                 !lower.contains("watermark") &&
                 !lower.contains("logo_name") &&
                 !lower.contains("wm_type") &&
-                !lower.contains("/mps/logo/")
+                !lower.contains("/mps/logo/") &&
+                !lower.contains("watermark=1")
     }
 
     /**
      * 处理新版抖音 CDN URL 结构
-     * 新版抖音使用 tos-cn-v 等 CDN，可能需要特殊处理
+     * 新版抖音使用 tos-cn-v 等 CDN，水印通过 URL 参数控制
      */
     private fun processNewDouyinUrl(url: String): String {
         var result = url
-        // 处理 tos-cn-v CDN 的水印参数
-        if (url.contains("tos-cn-v", ignoreCase = true)) {
-            // 移除常见水印参数
-            result = result.replace(Regex("[?&]wm=[^&]*"), "")
-            result = result.replace(Regex("[?&]mark=[^&]*"), "")
-            result = result.replace(Regex("[?&]mask=[^&]*"), "")
-            // 修复 URL
-            result = result.replace("&&", "&").replace("?&", "?")
-            if (result.endsWith("?") || result.endsWith("&")) {
-                result = result.substring(0, result.length - 1)
-            }
+        // 处理各种 CDN 的水印参数
+        val watermarkParams = listOf(
+            "wm", "mark", "mask", "watermark", "logo",
+            "wm_type", "wm_value", "wm_text",
+            "logo_name", "logo_type", "overlay",
+            "need_wm", "show_wm", "wm_quality", "wm_opacity",
+            "enable_watermark", "watermark_type", "wm_source",
+            "watermark_pos", "watermark_size", "watermark_alpha", "watermark_color",
+            "wm_area", "wm_fontsize", "wm_image"
+        )
+        for (param in watermarkParams) {
+            result = result.replace(Regex("[?&]$param=[^&]*"), "")
+        }
+        // 修复 URL
+        result = result.replace("&&", "&").replace("?&", "?")
+        if (result.endsWith("?") || result.endsWith("&")) {
+            result = result.substring(0, result.length - 1)
         }
         return result
     }
@@ -235,11 +242,13 @@ object UrlParser {
      */
     private fun buildCleanUrl(url: String): String {
         var result = url
-        // 替换 CDN 域名
+        // 替换 CDN 域名（去掉可能的水印子域）
         val domainReplacements = mapOf(
             "v3-web.douyinvod" to "v1-web.douyinvod",
             "v9-web.douyinvod" to "v1-web.douyinvod",
             "v11-web.douyinvod" to "v1-web.douyinvod",
+            "v16-web.douyinvod" to "v1-web.douyinvod",
+            "v26-web.douyinvod" to "v1-web.douyinvod",
             "douyinvod.com" to "douyinvod.net"
         )
         for ((old, new) in domainReplacements) {
@@ -324,6 +333,12 @@ object UrlParser {
         // 检查特定路径模式
         if (lowerUrl.contains("/playwm/") || lowerUrl.contains("/play/") ||
             lowerUrl.contains("/playwm?") || lowerUrl.contains("/play?")) return true
+
+        // 新版抖音: tos-cn-v CDN + /play 路径
+        if (lowerUrl.contains("tos-cn-v") && lowerUrl.contains("/play")) return true
+
+        // 新版抖音: amemv.com 播放接口
+        if (lowerUrl.contains("amemv.com") && lowerUrl.contains("aweme/v1/play")) return true
 
         return false
     }

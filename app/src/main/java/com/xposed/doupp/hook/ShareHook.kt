@@ -4,9 +4,9 @@ import com.xposed.doupp.util.ContextHelper
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.MediaDownloader
 import com.xposed.doupp.util.UrlParser
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
+import com.xposed.doupp.compat.XposedHelpers
 
 /**
  * 分享拦截 Hook

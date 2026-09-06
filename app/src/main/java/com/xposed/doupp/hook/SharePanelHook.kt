@@ -29,9 +29,9 @@ import com.xposed.doupp.util.IconRes
 import com.xposed.doupp.util.MediaCache
 import com.xposed.doupp.util.MediaDownloader
 import com.xposed.doupp.util.UrlParser
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
+import com.xposed.doupp.compat.XposedHelpers
 
 /**
  * 分享面板 Hook — 在分享面板底部注入功能按钮

@@ -6,8 +6,8 @@ import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.ClassFinder
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.MediaCache
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -45,8 +45,8 @@ class VideoFilterHook : BaseHook {
 
         @JvmStatic
         fun triggerFilterSwipe() {
-            HookUtils.log("$TAG: 触发官方连播跳过被阻止 (由官方自动播放控制，filter不强制跳过)")
-            return
+            // 走官方自动连播机制强制跳转到下一个视频（不模拟触摸，避免被检测）
+            AutoPlayControllerHook.triggerMoveToNextForce()
         }
 
         private fun isMethodHooked(m: java.lang.reflect.Method): Boolean {
@@ -95,12 +95,12 @@ class VideoFilterHook : BaseHook {
                 XposedBridge.hookMethod(idMethod, object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         try {
-                            checkShoppingOnly(param.thisObject)
+                            param.thisObject?.let { checkShoppingOnly(it) }
                             if (!DouSettings.isVideoFilterEnabled()) return
                             val awemeId = param.result as? String ?: return
                             if (awemeId == lastAwemeId) return
                             lastAwemeId = awemeId
-                            checkAndFilter(param.thisObject)
+                            param.thisObject?.let { checkAndFilter(it) }
                         } catch (_: Throwable) {}
                     }
                 })
@@ -117,7 +117,7 @@ class VideoFilterHook : BaseHook {
                 XposedBridge.hookMethod(videoMethod, object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         try {
-                            checkShoppingOnly(param.thisObject)
+                            param.thisObject?.let { checkShoppingOnly(it) }
                             if (!DouSettings.isVideoFilterEnabled()) return
                             val aweme = param.thisObject ?: return
                             val awemeId = getAwemeId(aweme)

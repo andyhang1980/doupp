@@ -11,16 +11,22 @@ android {
         applicationId = "com.xposed.doupp"
         minSdk = 28
         targetSdk = 34
-        versionCode = 5
-        versionName = "3.0.0"
+        versionCode = 7
+        versionName = "3.0.1"
     }
 
     signingConfigs {
         create("release") {
-            storeFile = file(System.getenv("KEYSTORE_FILE") ?: "keystore.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
-            keyAlias = System.getenv("KEY_ALIAS") ?: ""
-            keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+            val ksFile = findProperty("KEYSTORE_FILE") as? String
+                ?: System.getenv("KEYSTORE_FILE")
+                ?: "E:\\lsposed\\doupp\\keystore_v2.jks"
+            storeFile = file(ksFile)
+            storePassword = (findProperty("KEYSTORE_PASSWORD") as? String
+                ?: System.getenv("KEYSTORE_PASSWORD")) ?: "DYpp_2026_K3y!x"
+            keyAlias = (findProperty("KEY_ALIAS") as? String
+                ?: System.getenv("KEY_ALIAS")) ?: "wekit2"
+            keyPassword = (findProperty("KEY_PASSWORD") as? String
+                ?: System.getenv("KEY_PASSWORD")) ?: "DYpp_2026_K3y!x"
         }
     }
 
@@ -31,7 +37,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            val hasKeystore = System.getenv("KEYSTORE_FILE") != null
+            val hasKeystore = true
             if (hasKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -66,8 +72,11 @@ android {
 }
 
 dependencies {
-    // Xposed API - compileOnly, provided at runtime by LSPosed
-    compileOnly(libs.xposed.api)
+    // LibXposed API - compileOnly, provided at runtime by LSPosed (modern API 101)
+    compileOnly(libs.libxposed.api)
+
+    // 传统 Xposed API 82 - compileOnly，FPA/太极 等免root框架运行时提供（de.robv.android.xposed）
+    compileOnly(files("libs/api-82.jar"))
 
     // DexKit - 运行时动态搜索类/方法，使模块抗抖音版本变动
     implementation(libs.dexkit)

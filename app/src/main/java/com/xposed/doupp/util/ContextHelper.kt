@@ -2,10 +2,9 @@ package com.xposed.doupp.util
 
 import android.app.Application
 import android.content.Context
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
-import de.robv.android.xposed.callbacks.XC_LoadPackage
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
+import com.xposed.doupp.compat.XposedHelpers
 
 /**
  * Context 获取工具
@@ -23,7 +22,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
  * - attach 是 Application 生命周期最早可 Hook 的方法，此时 ClassLoader 已就绪
  * - 提供回调让其他 Hook 模块在正确时机安装
  *
- * 兼容 LSPosed 2.0.x (API 101) / LSPosed 1.x (API 93+)
+ * 兼容 LSPosed 2.x (API 101)
  */
 object ContextHelper {
 
@@ -34,7 +33,7 @@ object ContextHelper {
     /** 是否已初始化 */
     private var initialized = false
 
-    /** LSPosed 2.x 中 Application 的完整类名 */
+    /** Application 的完整类名 */
     private const val APPLICATION_CLASS = "android.app.Application"
     private const val ACTIVITY_CLASS = "android.app.Activity"
     private const val ACTIVITY_THREAD_CLASS = "android.app.ActivityThread"
@@ -55,17 +54,17 @@ object ContextHelper {
      * 3. 备用 Hook Activity.onCreate — 最后兜底
      * 4. 立即尝试 ActivityThread 反射
      *
-     * @param lpparam 加载包参数
+     * @param classLoader 宿主类加载器
      */
-    fun init(lpparam: XC_LoadPackage.LoadPackageParam) {
+    fun init(classLoader: ClassLoader) {
         if (initialized) return
         initialized = true
 
-        hookApplicationAttach(lpparam)
-        hookApplication(lpparam)
-        hookActivity(lpparam)
+        hookApplicationAttach(classLoader)
+        hookApplication(classLoader)
+        hookActivity(classLoader)
 
-        // LSPosed 2.x 备用方案: 尝试立即通过反射获取
+        // 备用方案: 尝试立即通过反射获取
         tryGetContextByReflection()
     }
 
@@ -99,14 +98,10 @@ object ContextHelper {
      * - multiDex 已安装完毕
      * - 加固壳已解密主 dex
      * - 真实的 ClassLoader 已替换到 Application 上
-     *
-     * 适配新版抖音的关键: 之前只 Hook onCreate，
-     * 但加固后 onCreate 时部分类可能尚未加载，
-     * 导致 ClassFinder 找不到 Aweme 等类。
      */
-    private fun hookApplicationAttach(lpparam: XC_LoadPackage.LoadPackageParam) {
+    private fun hookApplicationAttach(classLoader: ClassLoader) {
         HookUtils.safeHook {
-            val appClass = XposedHelpers.findClass(APPLICATION_CLASS, lpparam.classLoader)
+            val appClass = XposedHelpers.findClass(APPLICATION_CLASS, classLoader)
 
             XposedBridge.hookAllMethods(appClass, "attach", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
@@ -152,9 +147,9 @@ object ContextHelper {
      * Hook Application.onCreate
      * 作为备用方案，某些情况下 attach 可能未被调用
      */
-    private fun hookApplication(lpparam: XC_LoadPackage.LoadPackageParam) {
+    private fun hookApplication(classLoader: ClassLoader) {
         HookUtils.safeHook {
-            val appClass = XposedHelpers.findClass(APPLICATION_CLASS, lpparam.classLoader)
+            val appClass = XposedHelpers.findClass(APPLICATION_CLASS, classLoader)
 
             XposedBridge.hookAllMethods(appClass, "onCreate", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
@@ -181,9 +176,9 @@ object ContextHelper {
      * Hook Activity.onCreate
      * 作为最后兜底方案
      */
-    private fun hookActivity(lpparam: XC_LoadPackage.LoadPackageParam) {
+    private fun hookActivity(classLoader: ClassLoader) {
         HookUtils.safeHook {
-            val activityClass = XposedHelpers.findClass(ACTIVITY_CLASS, lpparam.classLoader)
+            val activityClass = XposedHelpers.findClass(ACTIVITY_CLASS, classLoader)
 
             XposedBridge.hookAllMethods(activityClass, "onCreate", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
@@ -227,7 +222,6 @@ object ContextHelper {
     /**
      * 通过反射尝试获取当前 Application
      *
-     * LSPosed 2.x 兼容:
      * - ActivityThread.currentActivityThread() 在 Android 9+ 仍然可用
      * - getApplication() 返回当前 Application 实例
      */

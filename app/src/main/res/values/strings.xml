@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DYPP</string>
-    <string name="xposed_description">抖音增强工具 - 分享面板底部注入: 无水印下载视频、下载音乐MP3、下载图片、复制文案、设置(去广告/自动播放等)</string>
+    <string name="xposed_description">抖音增强工具 - 作用域: 抖音+抖音商城 | 开屏广告跳过 | 自动连播 | 无水印下载</string>
 
     <!-- 设置页面标题 -->
     <string name="settings_title">Dou++ 设置</string>
@@ -138,6 +138,13 @@
     <string name="pref_bookmark_video_summary">在分享面板显示"收藏作品"按钮</string>
     <string name="pref_bookmark_profile_title">主页书签</string>
     <string name="pref_bookmark_profile_summary">收藏作者主页，检测新作品并提醒</string>
+
+    <!-- 自动续火花 -->
+    <string name="category_spark">自动续火花</string>
+    <string name="pref_spark_enabled_title">自动续火花</string>
+    <string name="pref_spark_enabled_summary">进入聊天页面后自动发送消息维持火花，火花即将过期时自动触发</string>
+    <string name="pref_spark_message_title">续火花消息内容</string>
+    <string name="pref_spark_message_summary">自动发送的消息内容，默认为 🔥</string>
 
     <!-- 关于/社区 -->
     <string name="category_about">关于</string>

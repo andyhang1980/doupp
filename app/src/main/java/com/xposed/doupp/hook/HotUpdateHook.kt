@@ -3,9 +3,9 @@ package com.xposed.doupp.hook
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.AdaptationManager
 import com.xposed.doupp.util.HookUtils
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
+import com.xposed.doupp.compat.XposedHelpers
 
 /**
  * 热更新屏蔽 Hook
@@ -141,7 +141,7 @@ class HotUpdateHook : BaseHook {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         if (!isBlockEnabled()) return
                         try {
-                            val request = param.thisObject
+                            val request = param.thisObject ?: return
                             val urlField = request.javaClass.getDeclaredField("mUrl")
                             urlField.isAccessible = true
                             val url = urlField.get(request) as? String ?: ""
@@ -164,7 +164,7 @@ class HotUpdateHook : BaseHook {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         if (!isBlockEnabled()) return
                         try {
-                            val request = param.args[0]
+                            val request = param.args.getOrNull(0) ?: return
                             val urlMethod = request.javaClass.getMethod("url")
                             val url = urlMethod.invoke(request).toString()
                             if (isPatchUrl(url)) {

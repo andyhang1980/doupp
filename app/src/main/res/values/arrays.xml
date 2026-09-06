@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- LSPosed 模块作用域 -->
-    <!-- 抖音正式版 -->
+    <!-- 抖音正式版 + 抖音商城 -->
     <string-array name="xposedscope">
         <item>com.ss.android.ugc.aweme</item>
+        <item>com.ss.android.ugc.livelite</item>
     </string-array>
 </resources>

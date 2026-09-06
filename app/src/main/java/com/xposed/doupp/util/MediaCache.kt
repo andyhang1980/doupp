@@ -273,7 +273,8 @@ object MediaCache {
                 lower.contains("watermark") ||
                 lower.contains("logo_name") ||
                 lower.contains("wm_type") ||
-                lower.contains("/mps/logo/")
+                lower.contains("/mps/logo/") ||
+                lower.contains("watermark=1")
     }
 
     /**
@@ -342,7 +343,12 @@ object MediaCache {
                 u.contains("tiktokcdn", ignoreCase = true) ||
                 u.contains("muscdn.com", ignoreCase = true) ||
                 u.contains("ibytedtos.com", ignoreCase = true) ||
-                u.contains("tos-cn-v", ignoreCase = true))
+                u.contains("tos-cn-v", ignoreCase = true) ||
+                u.contains("bytecdn.cn", ignoreCase = true) ||
+                u.contains("bdurl.net", ignoreCase = true) ||
+                u.contains("bdurl.cn", ignoreCase = true) ||
+                u.contains("byteoss.com", ignoreCase = true) ||
+                u.contains("amemv.com", ignoreCase = true))
             && !u.contains("playwm", ignoreCase = true)
             && !u.contains("watermark=1", ignoreCase = true)
             && !u.contains("mps/logo", ignoreCase = true)
@@ -397,7 +403,9 @@ object MediaCache {
                         if (value.startsWith("http") && (
                             value.contains("/play") || value.contains("playwm") ||
                             value.contains("douyinvod") || value.contains(".mp4") ||
-                            value.contains("bytevcloudcdn"))) {
+                            value.contains("bytevcloudcdn") || value.contains("tos-cn-v") ||
+                            value.contains("amemv.com") || value.contains("bytecdn.cn") ||
+                            value.contains("ibytedtos.com"))) {
                             return value
                         }
                     }
@@ -405,7 +413,8 @@ object MediaCache {
                         for (item in value) {
                             if (item is String && item.startsWith("http") &&
                                 (item.contains("/play") || item.contains("playwm") ||
-                                 item.contains("douyinvod"))) {
+                                 item.contains("douyinvod") || item.contains("tos-cn-v") ||
+                                 item.contains("amemv.com"))) {
                                 return item
                             }
                             // 递归处理 List 中的对象
@@ -441,7 +450,10 @@ object MediaCache {
                             if (value.startsWith("http") &&
                                 (value.contains("/play") || value.contains("playwm") ||
                                  value.contains("douyinvod") || value.contains(".mp4") ||
-                                 value.contains("bytevcloudcdn") || value.contains("/mps/"))) {
+                                 value.contains("bytevcloudcdn") || value.contains("/mps/") ||
+                                 value.contains("tos-cn-v") || value.contains("amemv.com") ||
+                                 value.contains("bytecdn.cn") || value.contains("ibytedtos.com") ||
+                                 value.contains("byteoss.com") || value.contains("bdurl"))) {
                                 if (value !in out) out.add(value)
                             }
                         }

@@ -8,9 +8,9 @@ import android.view.ViewGroup
 import android.widget.TextView
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.HookUtils
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
+import com.xposed.doupp.compat.XposedHelpers
 
 /**
  * 广告屏蔽 Hook（模块化开关控制）
@@ -154,8 +154,8 @@ class AdHook : BaseHook {
             val info = XposedHelpers.getObjectField(mBoundApplication, "appInfo") as? android.content.pm.ApplicationInfo
             val pkgName = info?.packageName ?: return
 
-            // 对目标进程中的所有类进行扫描（仅对抖音主进程生效）
-            if (pkgName == "com.ss.android.ugc.aweme") {
+            // 对目标进程中的所有类进行扫描（仅对抖音主进程/商城进程生效）
+            if (pkgName == "com.ss.android.ugc.aweme" || pkgName == "com.ss.android.ugc.livelite") {
                 HookUtils.log("$TAG: [广告SDK] 目标进程: $pkgName，准备扫描广告相关类")
             }
         } catch (_: Throwable) {}
@@ -227,11 +227,11 @@ class AdHook : BaseHook {
                 val child = decor.getChildAt(i) ?: continue
                 // 跳过 content 容器（主内容区域）
                 if (child.id == android.R.id.content) continue
-                // 侧边栏特征：宽度大、高度大、位于左侧
+                // 侧边栏特征：部分宽度（<80%屏宽，排除全屏主内容容器）、高度大、位于左侧
                 val w = child.width
                 val h = child.height
                 val x = child.x
-                if (w > screenW * 0.4f && h > screenH * 0.7f && x < screenW * 0.2f) {
+                if (w > screenW * 0.4f && w < screenW * 0.8f && h > screenH * 0.7f && x < screenW * 0.2f) {
                     HookUtils.log("$TAG: 检测到侧边栏打开: ${child.javaClass.simpleName} w=${w} h=${h} x=${x.toInt()}")
                     return true
                 }

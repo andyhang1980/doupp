@@ -20,9 +20,9 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import com.xposed.doupp.ui.DouSettings
 import com.xposed.doupp.util.HookUtils
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import com.xposed.doupp.compat.XC_MethodHook
+import com.xposed.doupp.compat.XposedBridge
+import com.xposed.doupp.compat.XposedHelpers
 
 class AutoPlayButtonHook : BaseHook {
 
@@ -124,6 +124,10 @@ class AutoPlayButtonHook : BaseHook {
 
                 val screenW = if (content.width > 0) content.width else decor.width
                 val screenH = if (content.height > 0) content.height else decor.height
+                if (screenW < btnSize || screenH < btnSize) {
+                    HookUtils.log("$TAG: 布局未就绪 (screen=${screenW}x$screenH)，跳过注入")
+                    return@post
+                }
 
                 val lp = FrameLayout.LayoutParams(btnSize, btnSize)
                 if (DouSettings.isAutoPlayFloating()) {
@@ -147,7 +151,7 @@ class AutoPlayButtonHook : BaseHook {
                     val btnX = (screenW * headCenterX - btnSize / 2).toInt()
                     val btnY = (screenH * headTopY - btnSize - gap).toInt()
                     lp.gravity = Gravity.TOP or Gravity.END
-                    lp.topMargin = maxOf(0, btnY)
+                    lp.topMargin = maxOf(0, btnY.coerceIn(0, screenH - btnSize))
                     lp.marginEnd = maxOf(0, screenW - btnX - btnSize)
                 }
 

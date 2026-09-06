@@ -63,6 +63,8 @@ object DouSettings {
     const val KEY_BOOKMARK_COMMENT = "bookmark_comment"
     const val KEY_BOOKMARK_VIDEO = "bookmark_video"
     const val KEY_BOOKMARK_PROFILE = "bookmark_profile"
+    const val KEY_SPARK_ENABLED = "spark_enabled"
+    const val KEY_SPARK_MESSAGE = "spark_message"
 
     // ==================== 默认值 ====================
     private const val DEFAULT_DOWNLOAD_VIDEO = true
@@ -88,15 +90,21 @@ object DouSettings {
     private const val DEFAULT_LONG_VIDEO_SECONDS = 300
     private const val DEFAULT_DOUBLE_CLICK_ACTION = "like"
     private const val DEFAULT_AUTO_PLAY_FLOATING = true
-    private const val DEFAULT_AUTO_PLAY_HIDE = false
+    private const val DEFAULT_AUTO_PLAY_HIDE = true
     private const val DEFAULT_IMMERSIVE_MODE = false
     private const val DEFAULT_BOOKMARK_ENABLED = true
     private const val DEFAULT_BOOKMARK_COMMENT = true
     private const val DEFAULT_BOOKMARK_VIDEO = true
     private const val DEFAULT_BOOKMARK_PROFILE = true
+    private const val DEFAULT_SPARK_ENABLED = false
+    private const val DEFAULT_SPARK_MESSAGE = "🔥"
 
     @Volatile
     private var prefs: SharedPreferences? = null
+
+    /** 是否为模块设置页进程（此进程的 prefs 是文件 prefs，必须保持可写，禁止被替换为只读 ProviderPrefs） */
+    @Volatile
+    private var isSettingsProcess = false
 
     /** ProviderPrefs 最近一次成功刷新的时间戳（用于控制实时刷新频率） */
     private var lastProviderRefresh = 0L
@@ -232,11 +240,16 @@ object DouSettings {
         if (prefs == null) {
             synchronized(this) {
                 if (prefs == null) {
+                    // 模块进程统一使用文件 prefs：与 SettingsProvider（抖音进程通过它跨进程读取）
+                    // 读取的是同一份文件，保证设置即时生效。getRemotePreferences 走 LSPosed 数据库，
+                    // 与 provider 读的文件不一致，故模块进程内不采用。
                     prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 }
             }
         }
-        // 记录 Context 并把 prefs 文件设为跨进程可读写（让抖音进程能读取/写入用户设置）
+        isSettingsProcess = true
+        // 记录 Context 并把 prefs 文件设为跨进程可读写（让抖音进程能读取/写入用户设置）。
+        // 使用 Remote Preferences 时文件方式仅作兜底，不影响主链路。
         prefsContext = context
         makeWorldAccessible(context)
         // 确保 prefs 文件存在（写入默认值）。抖音进程通过直接文件读取跨进程读取设置，
@@ -408,6 +421,25 @@ object DouSettings {
         synchronized(this) {
             if (prefs != null) return@synchronized
 
+            // 策略0（首选）: LibXposed API 101 官方跨进程桥接
+            // getRemotePreferences 由 LSPosed 框架直接桥接模块的 SharedPreferences，
+            // 无需 world-readable 文件权限，也不依赖 ContentProvider 常驻。
+            try {
+                val remote = com.xposed.doupp.compat.XposedBridge.getRemotePreferences(PREFS_NAME)
+                if (remote != null && remote.all.isNotEmpty()) {
+                    prefs = remote
+                    HookUtils.log("DouSettings: 远程 SharedPreferences 初始化成功 (getRemotePreferences, ${remote.all.size} keys)")
+                    return@synchronized
+                }
+                if (remote != null) {
+                    HookUtils.log("DouSettings: 远程 prefs 为空，跳过，尝试其它策略")
+                } else {
+                    HookUtils.log("DouSettings: getRemotePreferences 不可用，尝试其它策略")
+                }
+            } catch (t: Throwable) {
+                HookUtils.log("DouSettings: getRemotePreferences 失败: ${t.message}")
+            }
+
             // 策略A（首选）: 直接读取模块 data 目录下的 prefs 文件
             // 说明: 本机 LSPosed 未把 de.robv.android.xposed.XSharedPreferences 注入模块类加载器，
             // 但模块 data 目录已被设为 world-readable(0755)、prefs 文件 world-readable(0644)，
@@ -433,51 +465,8 @@ object DouSettings {
                 HookUtils.log("DouSettings: 文件读取方式失败: ${t.message}")
             }
 
-            // 策略0: 尝试 XSharedPreferences（LSPosed 原生跨进程读取，最可靠）
-            // 从多个候选类加载器尝试加载，避免只从 XposedBridge 的类加载器加载失败
-            try {
-                val loaders = arrayOf(
-                    DouSettings::class.java.classLoader,
-                    de.robv.android.xposed.XposedBridge::class.java.classLoader,
-                    Thread.currentThread().contextClassLoader,
-                    ClassLoader.getSystemClassLoader()
-                )
-                // [DBG] 探测 Xposed 类是否可加载
-                val probeNames = arrayOf(
-                    "de.robv.android.xposed.XSharedPreferences",
-                    "de.robv.android.xposed.XposedHelpers",
-                    "de.robv.android.xposed.XposedBridge"
-                )
-                for (name in probeNames) {
-                    val found = loaders.any { cl -> try { cl?.loadClass(name) != null } catch (_: Throwable) { false } }
-                    HookUtils.log("DouSettings: [DBG] 类 $name 可加载=$found")
-                }
-                HookUtils.log("DouSettings: [DBG] XposedBridge.classLoader=${de.robv.android.xposed.XposedBridge::class.java.classLoader}")
-                var xspClass: Class<*>? = null
-                for (cl in loaders) {
-                    if (cl == null) continue
-                    try {
-                        xspClass = cl.loadClass("de.robv.android.xposed.XSharedPreferences")
-                        if (xspClass != null) {
-                            HookUtils.log("DouSettings: [DBG] XSharedPreferences 命中 classloader=$cl")
-                            break
-                        }
-                    } catch (_: Throwable) {}
-                }
-                if (xspClass != null) {
-                    val constructor = xspClass!!.getConstructor(String::class.java, String::class.java)
-                    val xsp = constructor.newInstance(MODULE_PACKAGE, PREFS_NAME)
-                    xspClass!!.getMethod("reload").invoke(xsp)
-                    prefs = xsp as SharedPreferences
-                    val all = xspClass!!.getMethod("getAll").invoke(xsp) as? Map<*, *>
-                    HookUtils.log("DouSettings: XSharedPreferences 初始化成功 (keys=${all?.size ?: 0})")
-                    return@synchronized
-                } else {
-                    HookUtils.log("DouSettings: XSharedPreferences 类不可用，跳过")
-                }
-            } catch (t: Throwable) {
-                HookUtils.log("DouSettings: XSharedPreferences 方式失败: ${t.message}")
-            }
+            // 策略0: 已移除 — API 101 不再注入 legacy de.robv.android.xposed.XSharedPreferences，
+            // 跨进程读取由策略A(直接读文件)/策略1(ContentProvider) 覆盖。
 
             // 策略1: 通过模块提供的 ContentProvider 跨进程读取（兜底）
             try {
@@ -700,6 +689,10 @@ object DouSettings {
                         loadMethod.invoke(sp)
                     }
                 } else if (className.contains("SharedPreferencesImpl")) {
+                    // 设置页进程的 prefs 就是模块文件本身，必须保持可写，禁止替换为只读 ProviderPrefs
+                    if (isSettingsProcess) {
+                        return
+                    }
                     // 本地 SharedPreferences 兜底：尝试通过 ContentProvider 获取最新设置
                     //（模块进程可能已被 settings 页面或 KeepAliveService 启动）。
                     // 若 ContentProvider 可用，切换到 ProviderPrefs 实现实时读取。
@@ -755,14 +748,17 @@ object DouSettings {
             }
             // 本地 SharedPreferences 兜底：定期尝试通过 ContentProvider 或文件同步
             if (p is SharedPreferences && p.javaClass.name.contains("SharedPreferencesImpl")) {
-                val now = System.currentTimeMillis()
-                if (now - lastProviderRefresh > PROVIDER_REFRESH_MS) {
-                    lastProviderRefresh = now
-                    if (tryInitFromProvider()) {
-                        prefs = ProviderPrefs()
-                        HookUtils.log("DouSettings: ContentProvider 可用，切换到实时模式")
-                    } else {
-                        syncFromModuleFile()
+                // 设置页进程的 prefs 就是模块文件本身，必须保持可写，禁止替换为只读 ProviderPrefs
+                if (!isSettingsProcess) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastProviderRefresh > PROVIDER_REFRESH_MS) {
+                        lastProviderRefresh = now
+                        if (tryInitFromProvider()) {
+                            prefs = ProviderPrefs()
+                            HookUtils.log("DouSettings: ContentProvider 可用，切换到实时模式")
+                        } else {
+                            syncFromModuleFile()
+                        }
                     }
                 }
             }
@@ -1252,6 +1248,20 @@ object DouSettings {
 
     fun setProfileBookmark(enabled: Boolean) =
         putBoolean(KEY_BOOKMARK_PROFILE, enabled)
+
+    // ==================== 自动续火花 ====================
+
+    fun isSparkEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_SPARK_ENABLED, DEFAULT_SPARK_ENABLED)
+
+    fun setSparkEnabled(enabled: Boolean) =
+        putBoolean(KEY_SPARK_ENABLED, enabled)
+
+    fun getSparkMessage(): String =
+        getPrefs().getString(KEY_SPARK_MESSAGE, DEFAULT_SPARK_MESSAGE) ?: DEFAULT_SPARK_MESSAGE
+
+    fun setSparkMessage(message: String) =
+        putString(KEY_SPARK_MESSAGE, message)
 
 }
 
