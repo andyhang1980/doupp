@@ -20,7 +20,7 @@ class LuckyBagHook : BaseHook {
 
     override fun init(classLoader: ClassLoader) {
         if (!DouSettings.isLuckyBagEnabled()) {
-            HookUtils.log("[$tag] 未启用，跳过")
+            HookUtils.log("[${tag()}] 未启用，跳过")
             return
         }
 
@@ -42,7 +42,7 @@ class LuckyBagHook : BaseHook {
                 for (methodName in trueMethods) {
                     for (m in clazz.declaredMethods.filter { it.name == methodName }) {
                         HookUtils.hookReplace(m) {
-                            HookUtils.log("[$tag] $className.$methodName -> true")
+                            HookUtils.log("[${tag()}] $className.$methodName -> true")
                             true
                         }
                         hooked++
@@ -52,6 +52,6 @@ class LuckyBagHook : BaseHook {
         }
 
         installed = hooked > 0
-        HookUtils.log("[$tag] 安装完成, hooked=$hooked")
+        HookUtils.log("[${tag()}] 安装完成, hooked=$hooked")
     }
 }

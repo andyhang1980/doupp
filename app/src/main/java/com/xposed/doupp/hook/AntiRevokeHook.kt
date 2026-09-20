@@ -20,7 +20,7 @@ class AntiRevokeHook : BaseHook {
 
     override fun init(classLoader: ClassLoader) {
         if (!DouSettings.isAntiRevokeEnabled()) {
-            HookUtils.log("[$tag] 未启用，跳过")
+            HookUtils.log("[${tag()}] 未启用，跳过")
             return
         }
 
@@ -42,7 +42,7 @@ class AntiRevokeHook : BaseHook {
                 for (methodName in revokeMethods) {
                     for (m in clazz.declaredMethods.filter { it.name == methodName }) {
                         HookUtils.hookReplace(m) {
-                            HookUtils.log("[$tag] 拦截撤回: $className.$methodName")
+                            HookUtils.log("[${tag()}] 拦截撤回: $className.$methodName")
                             null
                         }
                         hooked++
@@ -52,6 +52,6 @@ class AntiRevokeHook : BaseHook {
         }
 
         installed = hooked > 0
-        HookUtils.log("[$tag] 安装完成, hooked=$hooked")
+        HookUtils.log("[${tag()}] 安装完成, hooked=$hooked")
     }
 }

@@ -20,7 +20,7 @@ class RegionUnlockHook : BaseHook {
 
     override fun init(classLoader: ClassLoader) {
         if (!DouSettings.isRegionUnlockEnabled()) {
-            HookUtils.log("[$tag] 未启用，跳过")
+            HookUtils.log("[${tag()}] 未启用，跳过")
             return
         }
 
@@ -40,7 +40,7 @@ class RegionUnlockHook : BaseHook {
                     for (m in clazz.declaredMethods.filter { it.name == methodName }) {
                         HookUtils.hookAfter(m) { result ->
                             if (result == true) {
-                                HookUtils.log("[$tag] $className.$methodName: true -> false")
+                                HookUtils.log("[${tag()}] $className.$methodName: true -> false")
                                 false
                             } else result
                         }
@@ -51,6 +51,6 @@ class RegionUnlockHook : BaseHook {
         }
 
         installed = hooked > 0
-        HookUtils.log("[$tag] 安装完成, hooked=$hooked")
+        HookUtils.log("[${tag()}] 安装完成, hooked=$hooked")
     }
 }
