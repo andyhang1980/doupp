@@ -38,11 +38,11 @@ class RegionUnlockHook : BaseHook {
                 val clazz = Class.forName(className, false, classLoader)
                 for (methodName in methodNames) {
                     for (m in clazz.declaredMethods.filter { it.name == methodName }) {
-                        HookUtils.hookAfter(m) { result ->
-                            if (result == true) {
+                        HookUtils.hookAfter(m) { param ->
+                            if (param.result == true) {
                                 HookUtils.log("[${tag()}] $className.$methodName: true -> false")
-                                false
-                            } else result
+                                param.result = false
+                            }
                         }
                         hooked++
                     }
