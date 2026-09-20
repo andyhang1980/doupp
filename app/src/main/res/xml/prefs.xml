@@ -251,6 +251,35 @@
 
     </PreferenceCategory>
 
+    <!-- ==================== 扩展功能 ==================== -->
+    <PreferenceCategory android:title="@string/category_extra">
+
+        <CheckBoxPreference
+            android:key="region_unlock"
+            android:title="@string/pref_region_unlock_title"
+            android:summary="@string/pref_region_unlock_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="auto_signin"
+            android:title="@string/pref_auto_signin_title"
+            android:summary="@string/pref_auto_signin_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="anti_revoke"
+            android:title="@string/pref_anti_revoke_title"
+            android:summary="@string/pref_anti_revoke_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="lucky_bag"
+            android:title="@string/pref_lucky_bag_title"
+            android:summary="@string/pref_lucky_bag_summary"
+            android:defaultValue="true" />
+
+    </PreferenceCategory>
+
     <!-- ==================== 关于 ==================== -->
     <PreferenceCategory android:title="@string/category_about">
 

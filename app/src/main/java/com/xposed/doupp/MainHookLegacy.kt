@@ -3,8 +3,10 @@ package com.xposed.doupp
 import android.os.Build
 import com.xposed.doupp.compat.XposedBridge
 import com.xposed.doupp.hook.AdHook
+import com.xposed.doupp.hook.AntiRevokeHook
 import com.xposed.doupp.hook.AutoPlayButtonHook
 import com.xposed.doupp.hook.AutoPlayControllerHook
+import com.xposed.doupp.hook.AutoSignInHook
 import com.xposed.doupp.hook.BookmarkHook
 import com.xposed.doupp.hook.CommentHook
 import com.xposed.doupp.hook.DoubleClickHook
@@ -13,7 +15,9 @@ import com.xposed.doupp.hook.DownloadHook
 import com.xposed.doupp.hook.FeedHook
 import com.xposed.doupp.hook.HotUpdateHook
 import com.xposed.doupp.hook.ImmersivePlayHook
+import com.xposed.doupp.hook.LuckyBagHook
 import com.xposed.doupp.hook.LivePhotoHook
+import com.xposed.doupp.hook.RegionUnlockHook
 import com.xposed.doupp.hook.ShareHook
 import com.xposed.doupp.hook.SharePanelHook
 import com.xposed.doupp.hook.VideoFilterHook
@@ -154,6 +158,10 @@ class MainHookLegacy : IXposedHookLoadPackage {
             DoubleClickHook(),
             ImmersivePlayHook(),
             BookmarkHook(),
+            RegionUnlockHook(),
+            AutoSignInHook(),
+            AntiRevokeHook(),
+            LuckyBagHook(),
         )
     }
 

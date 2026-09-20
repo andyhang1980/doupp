@@ -148,6 +148,15 @@
 
     <!-- 关于/社区 -->
     <string name="category_about">关于</string>
+    <string name="category_extra">扩展功能</string>
+    <string name="pref_region_unlock_title">地区限制解锁</string>
+    <string name="pref_region_unlock_summary">解除抖音地区限制，解锁受限内容</string>
+    <string name="pref_auto_signin_title">自动签到</string>
+    <string name="pref_auto_signin_summary">自动完成每日签到任务</string>
+    <string name="pref_anti_revoke_title">消息防撤回</string>
+    <string name="pref_anti_revoke_summary">阻止对方撤回已发送的消息</string>
+    <string name="pref_lucky_bag_title">福袋自动领取</string>
+    <string name="pref_lucky_bag_summary">直播间福袋自动领取奖励</string>
     <string name="pref_telegram_title">电报群组</string>
     <string name="pref_telegram_summary">点击加入 Dou++ 用户群组获取更新与支持</string>
 

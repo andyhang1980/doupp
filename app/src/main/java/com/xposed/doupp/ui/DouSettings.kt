@@ -65,6 +65,10 @@ object DouSettings {
     const val KEY_BOOKMARK_PROFILE = "bookmark_profile"
     const val KEY_SPARK_ENABLED = "spark_enabled"
     const val KEY_SPARK_MESSAGE = "spark_message"
+    const val KEY_REGION_UNLOCK = "region_unlock"
+    const val KEY_AUTO_SIGNIN = "auto_signin"
+    const val KEY_ANTI_REVOKE = "anti_revoke"
+    const val KEY_LUCKY_BAG = "lucky_bag"
 
     // ==================== 默认值 ====================
     private const val DEFAULT_DOWNLOAD_VIDEO = true
@@ -98,6 +102,10 @@ object DouSettings {
     private const val DEFAULT_BOOKMARK_PROFILE = true
     private const val DEFAULT_SPARK_ENABLED = false
     private const val DEFAULT_SPARK_MESSAGE = "🔥"
+    private const val DEFAULT_REGION_UNLOCK = true
+    private const val DEFAULT_AUTO_SIGNIN = true
+    private const val DEFAULT_ANTI_REVOKE = true
+    private const val DEFAULT_LUCKY_BAG = true
 
     @Volatile
     private var prefs: SharedPreferences? = null
@@ -855,7 +863,8 @@ object DouSettings {
                 KEY_BLOCK_AD_SDK, KEY_BLOCK_HOT_UPDATE, KEY_SAVE_COMMENT_MEDIA,
                 KEY_VIDEO_FILTER, KEY_FILTER_LIVE, KEY_FILTER_IMAGE,
                 KEY_FILTER_AD, KEY_FILTER_LONG_VIDEO, KEY_BOOKMARK_ENABLED,
-                KEY_BOOKMARK_COMMENT, KEY_BOOKMARK_VIDEO, KEY_BOOKMARK_PROFILE
+                KEY_BOOKMARK_COMMENT, KEY_BOOKMARK_VIDEO, KEY_BOOKMARK_PROFILE,
+                KEY_REGION_UNLOCK, KEY_AUTO_SIGNIN, KEY_ANTI_REVOKE, KEY_LUCKY_BAG
             )
             for (key in keys) {
                 if (b.containsKey(key)) {
@@ -1262,6 +1271,38 @@ object DouSettings {
 
     fun setSparkMessage(message: String) =
         putString(KEY_SPARK_MESSAGE, message)
+
+    // ==================== 地区解锁 ====================
+
+    fun isRegionUnlockEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_REGION_UNLOCK, DEFAULT_REGION_UNLOCK)
+
+    fun setRegionUnlock(enabled: Boolean) =
+        putBoolean(KEY_REGION_UNLOCK, enabled)
+
+    // ==================== 自动签到 ====================
+
+    fun isAutoSignInEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_AUTO_SIGNIN, DEFAULT_AUTO_SIGNIN)
+
+    fun setAutoSignIn(enabled: Boolean) =
+        putBoolean(KEY_AUTO_SIGNIN, enabled)
+
+    // ==================== 消息防撤回 ====================
+
+    fun isAntiRevokeEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_ANTI_REVOKE, DEFAULT_ANTI_REVOKE)
+
+    fun setAntiRevoke(enabled: Boolean) =
+        putBoolean(KEY_ANTI_REVOKE, enabled)
+
+    // ==================== 福袋自动领取 ====================
+
+    fun isLuckyBagEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_LUCKY_BAG, DEFAULT_LUCKY_BAG)
+
+    fun setLuckyBag(enabled: Boolean) =
+        putBoolean(KEY_LUCKY_BAG, enabled)
 
 }
 

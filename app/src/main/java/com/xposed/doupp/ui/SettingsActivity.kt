@@ -114,6 +114,10 @@ class SettingsActivity : PreferenceActivity() {
             safePref("bookmark_profile") { DouSettings.setProfileBookmark(it as Boolean) }
             safePref("spark_enabled") { DouSettings.setSparkEnabled(it as Boolean) }
             safePref("spark_message") { DouSettings.setSparkMessage(it as String) }
+            safePref("region_unlock") { DouSettings.setRegionUnlock(it as Boolean) }
+            safePref("auto_signin") { DouSettings.setAutoSignIn(it as Boolean) }
+            safePref("anti_revoke") { DouSettings.setAntiRevoke(it as Boolean) }
+            safePref("lucky_bag") { DouSettings.setLuckyBag(it as Boolean) }
             findPreference("telegram")?.setOnPreferenceClickListener {
                 openTelegram()
                 true
