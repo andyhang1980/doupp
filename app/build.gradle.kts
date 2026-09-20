@@ -20,13 +20,16 @@ android {
             val ksFile = findProperty("KEYSTORE_FILE") as? String
                 ?: System.getenv("KEYSTORE_FILE")
                 ?: "E:\\lsposed\\doupp\\keystore_v2.jks"
-            storeFile = file(ksFile)
-            storePassword = (findProperty("KEYSTORE_PASSWORD") as? String
-                ?: System.getenv("KEYSTORE_PASSWORD")) ?: "DYpp_2026_K3y!x"
-            keyAlias = (findProperty("KEY_ALIAS") as? String
-                ?: System.getenv("KEY_ALIAS")) ?: "wekit2"
-            keyPassword = (findProperty("KEY_PASSWORD") as? String
-                ?: System.getenv("KEY_PASSWORD")) ?: "DYpp_2026_K3y!x"
+            val ks = file(ksFile)
+            if (ks.exists()) {
+                storeFile = ks
+                storePassword = (findProperty("KEYSTORE_PASSWORD") as? String
+                    ?: System.getenv("KEYSTORE_PASSWORD")) ?: "DYpp_2026_K3y!x"
+                keyAlias = (findProperty("KEY_ALIAS") as? String
+                    ?: System.getenv("KEY_ALIAS")) ?: "wekit2"
+                keyPassword = (findProperty("KEY_PASSWORD") as? String
+                    ?: System.getenv("KEY_PASSWORD")) ?: "DYpp_2026_K3y!x"
+            }
         }
     }
 
@@ -37,8 +40,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            val hasKeystore = true
-            if (hasKeystore) {
+            val ksFile = findProperty("KEYSTORE_FILE") as? String
+                ?: System.getenv("KEYSTORE_FILE")
+                ?: "E:\\lsposed\\doupp\\keystore_v2.jks"
+            if (file(ksFile).exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
