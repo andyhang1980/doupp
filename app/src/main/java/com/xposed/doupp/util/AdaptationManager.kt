@@ -133,6 +133,26 @@ object AdaptationManager {
                 HookUtils.log("$TAG: 适配SharePanel失败: ${t.message}")
             }
 
+            // 11. 适配地区解锁
+            try { results.add(adaptRegionUnlock(classLoader)) } catch (t: Throwable) {
+                HookUtils.log("$TAG: 适配RegionUnlock失败: ${t.message}")
+            }
+
+            // 12. 适配自动签到
+            try { results.add(adaptAutoSignIn(classLoader)) } catch (t: Throwable) {
+                HookUtils.log("$TAG: 适配AutoSignIn失败: ${t.message}")
+            }
+
+            // 13. 适配消息防撤回
+            try { results.add(adaptAntiRevoke(classLoader)) } catch (t: Throwable) {
+                HookUtils.log("$TAG: 适配AntiRevoke失败: ${t.message}")
+            }
+
+            // 14. 适配福袋自动领取
+            try { results.add(adaptLuckyBag(classLoader)) } catch (t: Throwable) {
+                HookUtils.log("$TAG: 适配LuckyBag失败: ${t.message}")
+            }
+
             // 保存缓存
             saveCache(douyinVersion)
 
@@ -685,6 +705,123 @@ object AdaptationManager {
             classNames.isNotEmpty(),
             if (classNames.isNotEmpty()) "分享面板适配完成" else "未检测到新版分享面板"
         )
+    }
+
+    /**
+     * 适配地区解锁类
+     */
+    private fun adaptRegionUnlock(classLoader: ClassLoader): AdaptationResult {
+        val feature = "地区解锁"
+        val candidates = listOf(
+            "com.ss.android.ugc.aweme.region.RegionCheck",
+            "com.ss.android.ugc.aweme.region.RegionManager",
+            "com.ss.android.ugc.aweme.geo.GeoRestrictManager",
+            "com.ss.android.ugc.aweme.geo.GeoRestrictHelper",
+            "com.ss.android.ugc.aweme.feed.model.FeedItem",
+            "com.ss.android.ugc.aweme.global.configfeed.GConfigFeedManager"
+        )
+        val methodNames = listOf(
+            "isRestricted", "isBlocked", "checkRegion", "isGeoRestricted",
+            "isRegionBlocked", "checkGeoRestrict"
+        )
+        val classNames = mutableListOf<String>()
+        for (name in candidates) {
+            try {
+                val clazz = Class.forName(name, false, classLoader)
+                val hasTarget = clazz.declaredMethods.any { m -> m.name in methodNames }
+                if (hasTarget) classNames.add(name)
+            } catch (_: ClassNotFoundException) { }
+        }
+        adaptationResults["region_unlock"] = classNames
+        return AdaptationResult(feature, classNames, classNames.isNotEmpty(),
+            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到")
+    }
+
+    /**
+     * 适配自动签到类
+     */
+    private fun adaptAutoSignIn(classLoader: ClassLoader): AdaptationResult {
+        val feature = "自动签到"
+        val candidates = listOf(
+            "com.ss.android.ugc.aweme.signin.SignInManager",
+            "com.ss.android.ugc.aweme.signin.SignInHelper",
+            "com.ss.android.ugc.aweme.task.DailyTaskManager",
+            "com.ss.android.ugc.aweme.task.SignInTask",
+            "com.ss.android.ugc.aweme.reward.SignInRewardManager"
+        )
+        val methodNames = listOf(
+            "isAutoSignInEnabled", "shouldAutoSignIn",
+            "isSignedToday", "hasSignedIn", "isSignInAvailable"
+        )
+        val classNames = mutableListOf<String>()
+        for (name in candidates) {
+            try {
+                val clazz = Class.forName(name, false, classLoader)
+                val hasTarget = clazz.declaredMethods.any { m -> m.name in methodNames }
+                if (hasTarget) classNames.add(name)
+            } catch (_: ClassNotFoundException) { }
+        }
+        adaptationResults["auto_signin"] = classNames
+        return AdaptationResult(feature, classNames, classNames.isNotEmpty(),
+            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到")
+    }
+
+    /**
+     * 适配消息防撤回类
+     */
+    private fun adaptAntiRevoke(classLoader: ClassLoader): AdaptationResult {
+        val feature = "消息防撤回"
+        val candidates = listOf(
+            "com.ss.android.ugc.aweme.message.im.IMManager",
+            "com.ss.android.ugc.aweme.message.MessageManager",
+            "com.ss.android.ugc.aweme.message.im.MessageRevokeHandler",
+            "com.ss.android.ugc.aweme.message.im.chat.ChatManager",
+            "com.ss.android.ugc.aweme.im.sdk.chat.ChatServiceManager"
+        )
+        val methodNames = listOf(
+            "onMessageRevoked", "handleRevokeMessage",
+            "revokeMessage", "processRevoke", "onRevokeMessage"
+        )
+        val classNames = mutableListOf<String>()
+        for (name in candidates) {
+            try {
+                val clazz = Class.forName(name, false, classLoader)
+                val hasTarget = clazz.declaredMethods.any { m -> m.name in methodNames }
+                if (hasTarget) classNames.add(name)
+            } catch (_: ClassNotFoundException) { }
+        }
+        adaptationResults["anti_revoke"] = classNames
+        return AdaptationResult(feature, classNames, classNames.isNotEmpty(),
+            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到")
+    }
+
+    /**
+     * 适配福袋自动领取类
+     */
+    private fun adaptLuckyBag(classLoader: ClassLoader): AdaptationResult {
+        val feature = "福袋自动领取"
+        val candidates = listOf(
+            "com.ss.android.ugc.aweme.live.luckybag.LuckyBagManager",
+            "com.ss.android.ugc.aweme.live.luckybag.LuckyBagViewModel",
+            "com.ss.android.ugc.aweme.live.luckybag.LuckyBagHelper",
+            "com.ss.android.ugc.aweme.live.model.LuckyBagInfo",
+            "com.ss.android.ugc.aweme.live.stream.LiveStreamLuckyBagManager"
+        )
+        val methodNames = listOf(
+            "isLuckyBagAutoClaimEnabled", "shouldAutoClaim",
+            "isLuckyBagAvailable", "canClaimLuckyBag"
+        )
+        val classNames = mutableListOf<String>()
+        for (name in candidates) {
+            try {
+                val clazz = Class.forName(name, false, classLoader)
+                val hasTarget = clazz.declaredMethods.any { m -> m.name in methodNames }
+                if (hasTarget) classNames.add(name)
+            } catch (_: ClassNotFoundException) { }
+        }
+        adaptationResults["lucky_bag"] = classNames
+        return AdaptationResult(feature, classNames, classNames.isNotEmpty(),
+            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到")
     }
 
     /**

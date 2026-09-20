@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DYPP</string>
-    <string name="xposed_description">抖音增强工具 - 作用域: 抖音+抖音商城 | 开屏广告跳过 | 自动连播 | 无水印下载</string>
+    <string name="xposed_description">抖音增强工具 - 作用域: 抖音+抖音商城 | 无水印下载 | 去广告 | 自动连播 | 地区解锁 | 防撤回 | 自动签到 | 福袋领取</string>
 
     <!-- 设置页面标题 -->
     <string name="settings_title">Dou++ 设置</string>

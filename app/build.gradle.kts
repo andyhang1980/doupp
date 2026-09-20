@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "com.xposed.doupp"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.xposed.doupp"
         minSdk = 28
-        targetSdk = 34
-        versionCode = 7
-        versionName = "3.0.1"
+        targetSdk = 35
+        versionCode = 8
+        versionName = "3.1.0"
     }
 
     signingConfigs {
