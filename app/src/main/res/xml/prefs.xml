@@ -321,11 +321,6 @@
             android:summary="@string/pref_mall_filter_video_summary"
             android:defaultValue="false" />
 
-        <Preference
-            android:key="mall_rescan"
-            android:title="@string/pref_mall_probe_title"
-            android:summary="@string/pref_mall_probe_summary" />
-
     </PreferenceCategory>
 
 

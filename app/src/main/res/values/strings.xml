@@ -167,12 +167,6 @@
     <string name="pref_mall_hide_entry_title">拦截商城营销弹窗与推送横幅</string>
     <string name="pref_mall_hide_entry_summary">按类名拦商城引流弹窗，并隐藏应用内商城推送横幅；不碰商品卡，不影响浏览与下单</string>
 
-    <string name="pref_mall_rescan_title">重新扫描电商适配</string>
-    <string name="pref_mall_rescan_summary">模块升级或抖音重打包后，清缓存重新定位电商类（需重启抖音生效）</string>
-
-    <string name="pref_mall_probe_title">电商适配状态</string>
-    <string name="pref_mall_probe_summary">显示电商相关类在当前抖音版本的适配结果</string>
-
     <string name="pref_block_beta_invite_title">屏蔽新版本内测弹窗</string>
     <string name="pref_block_beta_invite_summary">按弹窗文案识别并拦下「内测 / 抢先体验」类邀请弹窗，换版本不用改</string>
 
