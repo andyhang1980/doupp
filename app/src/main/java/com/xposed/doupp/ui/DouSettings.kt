@@ -65,7 +65,11 @@ object DouSettings {
     const val KEY_BOOKMARK_PROFILE = "bookmark_profile"
     const val KEY_SPARK_ENABLED = "spark_enabled"
     const val KEY_SPARK_MESSAGE = "spark_message"
-    const val KEY_REGION_UNLOCK = "region_unlock"
+    const val KEY_REGION_UNLOCK = "region_unlock"
+    const val KEY_MALL_HIDE_CARDS = "mall_hide_cards"
+    const val KEY_MALL_LIVE_CLEAN = "mall_live_clean"
+    const val KEY_MALL_HIDE_ENTRY = "mall_hide_entry"
+    const val KEY_MALL_FILTER_VIDEO = "mall_filter_video"
     const val KEY_AUTO_SIGNIN = "auto_signin"
     const val KEY_ANTI_REVOKE = "anti_revoke"
     const val KEY_LUCKY_BAG = "lucky_bag"
@@ -78,7 +82,11 @@ object DouSettings {
     private const val DEFAULT_REMOVE_AD = true
     private const val DEFAULT_SKIP_SPLASH_AD = true
     private const val DEFAULT_BLOCK_FEED_KEYWORDS = true
-    private const val DEFAULT_BLOCK_SHOPPING = true
+    private const val DEFAULT_BLOCK_SHOPPING = true
+    private const val DEFAULT_MALL_HIDE_CARDS = true
+    private const val DEFAULT_MALL_LIVE_CLEAN = false
+    private const val DEFAULT_MALL_HIDE_ENTRY = true
+    private const val DEFAULT_MALL_FILTER_VIDEO = false
     private const val DEFAULT_HIDE_AD_LABELS = true
     private const val DEFAULT_BLOCK_AD_SDK = true
     private const val DEFAULT_BLOCK_HOT_UPDATE = true
@@ -273,7 +281,11 @@ object DouSettings {
                     putBoolean(KEY_REMOVE_AD, DEFAULT_REMOVE_AD)
                     putBoolean(KEY_SKIP_SPLASH_AD, DEFAULT_SKIP_SPLASH_AD)
                     putBoolean(KEY_BLOCK_FEED_KEYWORDS, DEFAULT_BLOCK_FEED_KEYWORDS)
-                    putBoolean(KEY_BLOCK_SHOPPING, DEFAULT_BLOCK_SHOPPING)
+                    putBoolean(KEY_BLOCK_SHOPPING, DEFAULT_BLOCK_SHOPPING)
+                    putBoolean(KEY_MALL_HIDE_CARDS, DEFAULT_MALL_HIDE_CARDS)
+                    putBoolean(KEY_MALL_LIVE_CLEAN, DEFAULT_MALL_LIVE_CLEAN)
+                    putBoolean(KEY_MALL_HIDE_ENTRY, DEFAULT_MALL_HIDE_ENTRY)
+                    putBoolean(KEY_MALL_FILTER_VIDEO, DEFAULT_MALL_FILTER_VIDEO)
                     putBoolean(KEY_HIDE_AD_LABELS, DEFAULT_HIDE_AD_LABELS)
                     putBoolean(KEY_BLOCK_AD_SDK, DEFAULT_BLOCK_AD_SDK)
                     putBoolean(KEY_BLOCK_HOT_UPDATE, DEFAULT_BLOCK_HOT_UPDATE)
@@ -333,6 +345,31 @@ object DouSettings {
         prefsContext?.let { makeWorldAccessible(it) }
     }
 
+    /**
+     * 消费「重新扫描适配」标记。
+     *
+     * 标记写在模块自己的 prefs 里（设置页/Provider 写入），宿主进程要跨进程读到，
+     * 所以这里走 ContentProvider 通道读一次；读到后立刻写回 false，保证只触发一次。
+     * 返回 true 表示本次启动需要重新扫描（模块升级换了锚点 / 抖音重打包时用）。
+     */
+    fun consumeRescanFlag(): Boolean {
+        val ctx = com.xposed.doupp.util.ContextHelper.getContext() ?: return false
+        val flag = try {
+            val b = ctx.contentResolver.call(
+                Uri.parse("content://.settings"), "getAll", null, null
+            )
+            b?.getBoolean("dy_rescan_adaptation", false) == true
+        } catch (_: Throwable) { false }
+        if (!flag) return false
+        try {
+            val extras = android.os.Bundle()
+            extras.putBoolean("dy_rescan_adaptation", false)
+            ctx.contentResolver.call(
+                Uri.parse("content://.settings"), "set", null, extras
+            )
+        } catch (_: Throwable) { }
+        return true
+    }
     private fun putBoolean(key: String, value: Boolean) {
         getPrefs().edit().putBoolean(key, value).apply()
     }
@@ -921,6 +958,17 @@ object DouSettings {
 
     fun isBlockShoppingEnabled(): Boolean =
         isRemoveAdEnabled() && getPrefs().getBoolean(KEY_BLOCK_SHOPPING, DEFAULT_BLOCK_SHOPPING)
+    fun isMallHideCardsEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_MALL_HIDE_CARDS, DEFAULT_MALL_HIDE_CARDS)
+
+    fun isMallLiveCleanEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_MALL_LIVE_CLEAN, DEFAULT_MALL_LIVE_CLEAN)
+
+    fun isMallHideEntryEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_MALL_HIDE_ENTRY, DEFAULT_MALL_HIDE_ENTRY)
+
+    fun isMallFilterVideoEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_MALL_FILTER_VIDEO, DEFAULT_MALL_FILTER_VIDEO)
 
     fun isHideAdLabelsEnabled(): Boolean =
         isRemoveAdEnabled() && getPrefs().getBoolean(KEY_HIDE_AD_LABELS, DEFAULT_HIDE_AD_LABELS)
@@ -1099,6 +1147,13 @@ object DouSettings {
 
     fun setBlockShopping(enabled: Boolean) =
         putBoolean(KEY_BLOCK_SHOPPING, enabled)
+    fun setMallHideCards(enabled: Boolean) = putBoolean(KEY_MALL_HIDE_CARDS, enabled)
+
+    fun setMallLiveClean(enabled: Boolean) = putBoolean(KEY_MALL_LIVE_CLEAN, enabled)
+
+    fun setMallHideEntry(enabled: Boolean) = putBoolean(KEY_MALL_HIDE_ENTRY, enabled)
+
+    fun setMallFilterVideo(enabled: Boolean) = putBoolean(KEY_MALL_FILTER_VIDEO, enabled)
 
     fun setHideAdLabels(enabled: Boolean) =
         putBoolean(KEY_HIDE_AD_LABELS, enabled)

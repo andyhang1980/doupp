@@ -1,4 +1,4 @@
-﻿package com.xposed.doupp.util
+package com.xposed.doupp.util
 
 import android.os.Handler
 import android.os.Looper
@@ -153,6 +153,10 @@ object AdaptationManager {
                 HookUtils.log("$TAG: 适配LuckyBag失败: ${t.message}")
             }
 
+            // 15. 适配商城/电商（40.7.0 全部在主包，语义包名保留）
+            try { results.add(adaptMallClasses(classLoader)) } catch (t: Throwable) {
+                HookUtils.log("$TAG: 适配商城失败: ${t.message}")
+            }
             // 保存缓存
             saveCache(douyinVersion)
 
@@ -552,6 +556,22 @@ object AdaptationManager {
     /**
      * 获取适配结果（供 Hook 使用）
      */
+    /**
+     * 强制下次启动重新扫描（清掉内存结果 + 缓存文件）。
+     *
+     * 触发方式：设置页「重新扫描电商适配」按钮，或
+     * adb shell content call --uri content://com.xposed.doupp.settings --method rescan
+     * 场景：模块升级换了锚点、抖音同版本号重打包、用户换了设备。
+     */
+    fun invalidateCache() {
+        adaptationResults.clear()
+        adaptationDone = false
+        DexStringIndex.clear()
+        runCatching {
+            cacheFile?.takeIf { it.exists() }?.delete()
+            HookUtils.log("$$TAG: 适配缓存已清除，下次启动将重新扫描")
+        }
+    }
     fun getAdaptedClasses(feature: String): List<String> {
         return adaptationResults[feature] ?: emptyList()
     }
@@ -912,6 +932,83 @@ object AdaptationManager {
     /**
      * 显示 Toast
      */
+    /**
+     * 适配商城/电商类（40.7.0 实测：全部在主包，没有独立商城 App）
+     *
+     * 电商语义包名整体保留：commerce.* 51 个 dex、ecommerce.* 11 个、ec.* 3 个
+     * 带货标记字段名也保留：is_ecommerce / isEC / ecVideo / is_shopping
+     */
+    private fun adaptMallClasses(classLoader: ClassLoader): AdaptationResult {
+        val feature = "商城电商"
+        val classNames = mutableListOf<String>()
+
+        // 1) 语义类名锚定（按类名，最稳）
+        val anchors = listOf(
+            // 视频内商品卡 / 角标
+            "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product.ECVideoInnerProductCardView",
+            "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product.ECTagLayout",
+            "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product.ECDotLayout",
+            // 商品卡数据
+            "com.ss.android.ugc.aweme.commerce.sdk.feedcard.product.net.ECProductCard",
+            "com.ss.android.ugc.aweme.commerce.sdk.feedcard.product.net.ECProductInfo",
+            // 信息流商城卡
+            "com.ss.android.ugc.aweme.bizmodule.fullfeed.feedCard.module.shopcard.FeedShopCardPresenter",
+            "com.ss.android.ugc.aweme.bizmodule.fullfeed.feedCard.view.feedshopcard.FeedNearbyShopView",
+            // 电商直播盒子
+            "com.ss.android.ugc.aweme.commerce.sdk.hybrid.xelement.ecomlive.ECLiveBoxForLynx",
+            "com.ss.android.ugc.aweme.commerce.sdk.hybrid.xelement.ecomlive.HybridLiveBoxForLynxV2",
+            "com.ss.android.ugc.aweme.commerce.sdk.hybrid.xelement.ecomlive.HybridLiveBoxForLynxV3",
+            // 直播电商状态 / 直播广告
+            "com.ss.android.ugc.aweme.commerce.sdk.feed.live.ECCheckliveStatusManager",
+            "com.ss.android.ugc.aweme.ad.LiveAdMiddleWareService",
+            // 字节电商 SDK 那一支（40.7.0 设备版实测：商城入口/浮层在这里，不在 aweme.commerce 下）
+            "com.bytedance.android.window.shop.home.module.ECWindowFloatCartEntryModule",
+            "com.bytedance.android.shopping.mall.homepage.component.ECMFTopBarComponent",
+            "com.bytedance.android.shopping.mall.integration.impl.ECMallHomepageService",
+            "com.bytedance.android.shopping.mall.homepage.card.product.ProductPriceView",
+            // 挑战页电商挂件
+            "com.ss.android.ugc.aweme.challenge.ui.header.widget.commerce.CommerceLiveCoverWidget"
+        )
+        for (n in anchors) {
+            runCatching {
+                Class.forName(n, false, classLoader)
+                classNames.add(n)
+            }
+        }
+        HookUtils.log("$TAG: 电商锚点命中 ${classNames.size}/")
+
+        // 2) 电商包下按类名补捞（40.7.0 电商类数量很大，只捞视图/卡片相关）
+        if (classNames.size < anchors.size) {
+            for (pkg in listOf(
+                "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product",
+                "com.ss.android.ugc.aweme.commerce.sdk.hybrid.xelement.ecomlive",
+                "com.ss.android.ugc.aweme.ecommerce"
+            )) {
+                classNames.addAll(
+                    ClassFinder.classNamesInPackage(classLoader, pkg, includeInner = false, limit = 300)
+                        .filter { it.endsWith("View") || it.endsWith("Layout") || it.endsWith("Card") }
+                )
+            }
+        }
+
+        // 3) 字符串特征兜底（feedShopCard / live_commerce）
+        if (classNames.isEmpty()) {
+            for (kw in listOf("feedShopCard", "live_commerce")) {
+                classNames.addAll(
+                    ClassFinder.findClassNamesByStrings(classLoader, listOf("com.ss.android.ugc.aweme"), listOf(kw))
+                )
+            }
+        }
+
+        val uniq = classNames.distinct()
+        adaptationResults["mall"] = uniq
+        return AdaptationResult(
+            feature,
+            uniq,
+            uniq.isNotEmpty(),
+            if (uniq.isNotEmpty()) "锚点 ${classNames.size}/，共 ${uniq.size} 个类" else "未发现电商类"
+        )
+    }
     private fun showToast(message: String) {
         mainHandler.post {
             try {

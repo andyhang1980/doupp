@@ -7,6 +7,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
 import com.xposed.doupp.ui.DouSettings
+import com.xposed.doupp.util.AdaptationManager
 
 /**
  * 跨进程设置读取桥。
@@ -22,6 +23,7 @@ class SettingsProvider : ContentProvider() {
         const val AUTHORITY = "com.xposed.doupp.settings"
         const val METHOD_ALL = "getAll"
         const val METHOD_SET = "set"
+        const val METHOD_RESCAN = "rescan"
     }
 
     override fun onCreate(): Boolean = true
@@ -40,6 +42,16 @@ class SettingsProvider : ContentProvider() {
                     is Float -> out.putFloat(key, value)
                 }
             }
+            return out
+        }
+        if (method == METHOD_RESCAN) {
+            // 宿主进程侧的缓存由下次启动重建；本进程若已加载过则直接清一次
+            AdaptationManager.invalidateCache()
+            // 写标记，宿主进程启动时读到就重新扫描
+            ctx.getSharedPreferences(DouSettings.PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean("dy_rescan_adaptation", true).commit()
+            val out = Bundle()
+            out.putBoolean("ok", true)
             return out
         }
         if (method == METHOD_SET) {

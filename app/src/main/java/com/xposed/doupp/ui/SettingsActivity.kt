@@ -118,6 +118,23 @@ class SettingsActivity : PreferenceActivity() {
             safePref("auto_signin") { DouSettings.setAutoSignIn(it as Boolean) }
             safePref("anti_revoke") { DouSettings.setAntiRevoke(it as Boolean) }
             safePref("lucky_bag") { DouSettings.setLuckyBag(it as Boolean) }
+            safePref("mall_hide_cards") { DouSettings.setMallHideCards(it as Boolean) }
+            safePref("mall_live_clean") { DouSettings.setMallLiveClean(it as Boolean) }
+            safePref("mall_hide_entry") { DouSettings.setMallHideEntry(it as Boolean) }
+            safePref("mall_filter_video") { DouSettings.setMallFilterVideo(it as Boolean) }
+            findPreference("mall_rescan")?.setOnPreferenceClickListener {
+                try {
+                    // 写标记 + 清本进程缓存；宿主进程下次启动会重新扫描电商类
+                    activity.contentResolver.call(
+                        Uri.parse("content://com.xposed.doupp.settings"),
+                        "rescan", null, null
+                    )
+                    Toast.makeText(activity, "已标记重扫，请重启抖音生效", Toast.LENGTH_SHORT).show()
+                } catch (t: Throwable) {
+                    Toast.makeText(activity, "重扫标记失败：" + t.message, Toast.LENGTH_SHORT).show()
+                }
+                true
+            }
             findPreference("telegram")?.setOnPreferenceClickListener {
                 openTelegram()
                 true

@@ -6,4 +6,11 @@
         <item>com.ss.android.ugc.aweme</item>
         <item>com.ss.android.ugc.livelite</item>
     </string-array>
+    <!-- 商城/电商相关包（40.7.0 设备版实测标识；部分设备才有独立商城 App，故一并静态声明） -->
+    <string-array name="mallscope">
+        <item>com.ss.android.ugc.aweme</item>
+        <item>com.ss.android.ugc.livelite</item>
+        <item>com.ss.android.ugc.aweme.lite</item>
+        <item>com.ss.android.ugc.ugec</item>
+    </string-array>
 </resources>

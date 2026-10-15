@@ -290,4 +290,38 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/category_mall">
+
+        <CheckBoxPreference
+            android:key="mall_hide_cards"
+            android:title="@string/pref_mall_hide_cards_title"
+            android:summary="@string/pref_mall_hide_cards_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="mall_live_clean"
+            android:title="@string/pref_mall_live_clean_title"
+            android:summary="@string/pref_mall_live_clean_summary"
+            android:defaultValue="false" />
+
+        <CheckBoxPreference
+            android:key="mall_hide_entry"
+            android:title="@string/pref_mall_hide_entry_title"
+            android:summary="@string/pref_mall_hide_entry_summary"
+            android:defaultValue="true" />
+
+        <CheckBoxPreference
+            android:key="mall_filter_video"
+            android:title="@string/pref_mall_filter_video_title"
+            android:summary="@string/pref_mall_filter_video_summary"
+            android:defaultValue="false" />
+
+        <Preference
+            android:key="mall_rescan"
+            android:title="@string/pref_mall_probe_title"
+            android:summary="@string/pref_mall_probe_summary" />
+
+    </PreferenceCategory>
+
+
 </PreferenceScreen>

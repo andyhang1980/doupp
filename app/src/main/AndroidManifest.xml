@@ -13,6 +13,37 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- 抖音商城/电商的静态声明（40.7.0 设备版实测）：
+         包名来自宿主 dex 里的 com.ss.android.commerce.chatbuy / com.ss.android.ecom* / com.bytedance.android.shopping
+         scheme 来自宿主里的 aweme://ec_search、aweme://ecom/*、aweme://ecomcs_im/*、aweme://chat/bullet_shop_card/*
+         Android 11+ 没有这些声明就看不到包与 Intent，设置页的电商开关也就无从判断商城是否安装 -->
+    <queries>
+        <package android:name="com.ss.android.ugc.aweme" />
+        <package android:name="com.ss.android.ugc.livelite" />
+        <package android:name="com.ss.android.ugc.aweme.lite" />
+        <package android:name="com.ss.android.ugc.ugec" />
+
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="aweme" android:host="ec_search" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="aweme" android:host="ecom" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="aweme" android:host="ecomcs_im" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="aweme" android:host="mall" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="aweme" android:host="chat" />
+        </intent>
+    </queries>
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -76,6 +107,9 @@
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposedscope" />
+        <meta-data
+            android:name="mallscope"
+            android:resource="@array/mallscope" />
 
     </application>
 
