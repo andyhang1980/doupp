@@ -2,7 +2,25 @@
 
 ## Unreleased (抖音 40.7.0 适配)
 
+### 新增
+
+- **电商管理（范围＝抖音商城，不碰直播带货）** — `MallHook` 只做两件事，锚点都经 40.7.0 真机验证：
+  - 拦截商城营销弹窗：`MallDrainageDialog` / `MallDrainageLynxDialog`，挂 `android.app.Dialog.show()`
+    框架方法（名字永远在）+ 按类名筛子，两边都稳定才叫锚点。**故意不拦** `ShareShopping*` ——
+    那是用户主动点分享时弹的商品分享卡，拦了会把分享弄坏，和点小黄车弹空卡是同一类事故
+  - 隐藏商城推送横幅：`ShoppingInnerPushWidget` / `ShoppingMallLowerPriceWidget`
+    （继承 `BaseBannerView` → `FrameLayout`），直接置 GONE
+  - 关开关默认开（`mall_hide_entry`，设置页改名「拦截商城营销弹窗与推送横幅」）
+- **直播分类** — 设置页新增「直播」分类；**直播间清爽模式**从电商管理里拆出来独立成
+  `LiveCleanHook`（key `live_clean`，默认关），把直播间电商盒子与直播广告挂件换成空占位，房间布局不变。
+  上一版该开关误放在电商管理分类下且 key 撞词没插进 prefs.xml，这次补齐。
+
 ### 修复
+
+- **点小黄车弹出的商品卡是空的** — `MallHook` 两处误伤：精确名单挂了
+  `ECVideoInnerProductCardView` / `ECTagLayout` / `ProductPriceView`（正是小黄车商品卡），
+  外加 `hideViews` 按包关键词补捞（`feed.video.product` / `shopcard` + Card|Tag|Shop|Product）
+  把商品卡和 presenter 一起 GONE。已全部移除：**商品卡一律不碰，宁可少命中也不误伤**
 
 - **ClassFinder 扫描后全空** — 原实现用 `scannedClassLoaders` 标记「这个 ClassLoader 已扫过」，
   导致第一次扫完某个包之后所有后续包扫描都直接返回空。改为按 ClassLoader 缓存完整类名列表。
@@ -28,6 +46,16 @@
 - **广告 SDK** — 仍是全量包扫描改成类名过滤；40.7.0 只有穿山甲在。
 
 ### 已知待修
+
+- **商城入口（首页顶部「商城」tab）不做隐藏** — `MallHomeTab` / `BottomMallHomeTab` / `BaseHomeTab`
+  的方法名在 40.7.0 被 R8 全量打散（`LJJLIIIJILLIZJL` 之类），没有稳定锚点，按方法名挂等于瞎猜
+- **商城页内内容（banner / 商品卡 / 楼层）无法用 native 类名隐藏** — `com.bytedance.android.shopping.*`
+  下 `mall/feed/jsb`、`hybrid/bridges` 一大堆，但 native 视图类 0 个，页面主体是 Lynx/H5；
+  硬要藏只能在 JS 层动刀，风险大于收益，有意不做
+- 参考插件 `0920131537` 的电商锚点（`getLiveCommercePlaceholderBind` / `C0526.m1395` 注册式）
+  在 40.7.0 全部 0 命中，无法照搬其做法，本项目商城锚点为独立摸排结果
+- 商城引流弹窗目前按类名拦截已装好，但还没在真实会话里抓到一次弹窗触发日志证明拦下
+- `DouSettings` 偶发「远程 prefs 为空，跳过…使用默认值」，导致当次启动开关读不到，需要查
 
 - `AutoPlayControllerHook` 内部仍引用 `yyds.C1714` / `yyds.InterfaceC1354` / `yyds.C2429`（抖音 39.x 类名），
   40.7.0 上 `yyds` 包已不存在，该 Hook 当前不生效，需要按新锚点重写。
