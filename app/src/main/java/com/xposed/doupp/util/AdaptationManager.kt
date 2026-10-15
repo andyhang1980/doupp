@@ -106,45 +106,42 @@ object AdaptationManager {
 
             val results = mutableListOf<AdaptationResult>()
 
-            // 1. 适配 Aweme 类（Feed流）
-            try { results.add(adaptAwemeClass(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配Aweme失败: ${t.message}")
+            // 单项适配统一走这里：打点 + 计时，卡在哪个适配项一眼能看出来
+            fun step(name: String, block: () -> AdaptationResult) {
+                val t0 = System.currentTimeMillis()
+                try {
+                    val r = block()
+                    results.add(r)
+                    val mark = if (r.success) "OK" else "空"
+                    HookUtils.log("$TAG: [$name] $mark ${r.message} (${System.currentTimeMillis() - t0}ms)")
+                } catch (t: Throwable) {
+                    HookUtils.log("$TAG: [$name] 失败 ${t.message} (${System.currentTimeMillis() - t0}ms)")
+                }
             }
+
+            // 1. 适配 Aweme 类（Feed流）
+            step("Aweme类") { adaptAwemeClass(classLoader) }
 
             // 2. 适配 Cronet 类（下载）
-            try { results.add(adaptCronetClasses(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配Cronet失败: ${t.message}")
-            }
+            step("Cronet") { adaptCronetClasses(classLoader) }
 
             // 3. 适配 OkHttp 类（下载）
-            try { results.add(adaptOkHttpClasses(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配OkHttp失败: ${t.message}")
-            }
+            step("OkHttp") { adaptOkHttpClasses(classLoader) }
 
             // 4. 适配 ExoPlayer 类（自动播放）
-            try { results.add(adaptExoPlayerClasses(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配ExoPlayer失败: ${t.message}")
-            }
+            step("播放器") { adaptExoPlayerClasses(classLoader) }
 
             // 5. 适配热更新框架类
-            try { results.add(adaptHotUpdateClasses(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配热更新失败: ${t.message}")
-            }
+            step("热更新") { adaptHotUpdateClasses(classLoader) }
 
             // 6. 适配广告SDK类
-            try { results.add(adaptAdSdkClasses(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配广告SDK失败: ${t.message}")
-            }
+            step("广告SDK") { adaptAdSdkClasses(classLoader) }
 
             // 7. 适配 AutoPlayController（官方自动播放控制器）
-            try { results.add(adaptAutoPlayController(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配AutoPlayController失败: ${t.message}")
-            }
+            step("AutoPlay") { adaptAutoPlayController(classLoader) }
 
             // 8. 适配 VerticalViewPager（视频过滤用）
-            try { results.add(adaptVerticalViewPager(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配ViewPager失败: ${t.message}")
-            }
+            step("ViewPager") { adaptVerticalViewPager(classLoader) }
 
             // 9. 适配 yyds 混淆包（新版抖音 R8 混淆类）
             try { results.add(scanYydsPackage(classLoader)) } catch (t: Throwable) {
@@ -152,34 +149,22 @@ object AdaptationManager {
             }
 
             // 10. 适配 SharePanel（新版分享面板）
-            try { results.add(adaptSharePanel(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配SharePanel失败: ${t.message}")
-            }
+            step("分享面板") { adaptSharePanel(classLoader) }
 
             // 11. 适配地区解锁
-            try { results.add(adaptRegionUnlock(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配RegionUnlock失败: ${t.message}")
-            }
+            step("地区解锁") { adaptRegionUnlock(classLoader) }
 
             // 12. 适配自动签到
-            try { results.add(adaptAutoSignIn(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配AutoSignIn失败: ${t.message}")
-            }
+            step("自动签到") { adaptAutoSignIn(classLoader) }
 
             // 13. 适配消息防撤回
-            try { results.add(adaptAntiRevoke(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配AntiRevoke失败: ${t.message}")
-            }
+            step("防撤回") { adaptAntiRevoke(classLoader) }
 
             // 14. 适配福袋自动领取
-            try { results.add(adaptLuckyBag(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配LuckyBag失败: ${t.message}")
-            }
+            step("福袋") { adaptLuckyBag(classLoader) }
 
             // 15. 适配商城/电商（40.7.0 全部在主包，语义包名保留）
-            try { results.add(adaptMallClasses(classLoader)) } catch (t: Throwable) {
-                HookUtils.log("$TAG: 适配商城失败: ${t.message}")
-            }
+            step("商城电商") { adaptMallClasses(classLoader) }
             // 保存缓存
             saveCache(douyinVersion)
 
@@ -783,31 +768,22 @@ object AdaptationManager {
                 )
             )?.let { classNames.add(it.name) }
 
-            // 2. 字符串特征
+            // 2. 字符串特征（一次批量传入，别一个关键词扫一遍全 APK）
             //    40.7.0 上 share_bottom_sheet / share_hsv 已经没了（0 命中），
             //    换成仍在的 share_panel / share_bottom / share_bar
-            val keywords = listOf("share_panel", "share_bottom", "share_bar", "shareAddTool")
-            val searchPackages = listOf(
-                "com.ss.android.ugc.aweme.share",
-                "com.ss.android.ugc.aweme.feed.detail_page_panel.quick",
-                "com.ss.android.ugc.aweme.feedliveshare",
-                "com.ss.android.ugc.aweme"
+            val keywords = listOf(
+                "share_panel", "share_bottom", "share_bar", "SharePanel",
+                // 旧版本锚点一并带上，换版本还能命中
+                "share_bottom_sheet", "share_hsv", "shareAddTool"
             )
-            for (pkg in searchPackages) {
-                for (kw in keywords) {
-                    classNames.addAll(
-                        ClassFinder.findByStringConstants(classLoader, pkg, listOf(kw)).map { it.name }
-                    )
-                }
-            }
-            // 3. 旧版锚点保留（旧版本抖音还能命中）
-            for (kw in listOf("share_bottom_sheet", "share_hsv")) {
-                classNames.addAll(
-                    ClassFinder.findByStringConstants(classLoader, "com.ss.android.ugc.aweme", listOf(kw))
-                        .map { it.name }
+            classNames.addAll(
+                ClassFinder.findClassNamesByStrings(
+                    classLoader,
+                    listOf("com.ss.android.ugc.aweme"),
+                    keywords
                 )
-            }
-            HookUtils.log("$TAG: 分享面板候选 = ${classNames.distinct()}")
+            )
+            HookUtils.log("$TAG: 分享面板候选 ${classNames.distinct().size} 个")
         } catch (t: Throwable) {
             HookUtils.log("$TAG: SharePanel适配异常: ${t.message}")
         }

@@ -16,6 +16,15 @@ import org.luckypray.dexkit.DexKitBridge
  */
 object DexKitManager {
 
+    /**
+     * 宿主 APK 路径（MainHook 传入的那个）。
+     *
+     * 注意：不要用 ContextHelper.getContext()?.applicationInfo?.sourceDir ——
+     * 在 Xposed 注入进程里那拿到的是**模块自己的 APK**（只有 1 个 dex），
+     * 拿它去扫宿主字符串等于白扫。需要扫宿主 dex 的地方一律用这个。
+     */
+    fun hostApkPath(): String? = apkPath
+
     @Volatile
     private var bridge: DexKitBridge? = null
 
@@ -33,6 +42,9 @@ object DexKitManager {
             this.apkPath = apkPath
             HookUtils.log("DexKit: 初始化 apk 路径 = $apkPath")
         }
+        // 预取模块要用到的字符串特征：一次扫完全部 dex，之后查询走缓存。
+        // 种子表（DexStringSeed）已覆盖的关键词不会触发扫描，这里只兜底未覆盖的部分。
+        DexStringIndex.prefetch(apkPath)
     }
 
     /**

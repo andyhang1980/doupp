@@ -23,8 +23,48 @@ object DexStringIndex {
     /** 类描述符 -> 该类里出现的关键词 */
     private val classToKeywords = HashMap<String, MutableSet<String>>()
 
-    private val indexed = HashSet<String>()   // 已建索引的 dex 标识
+    private val indexed = HashSet<String>()   // 扫过的 dex（仅用于日志/统计）
+    private val failedDex = HashSet<String>()    // 解析失败的 dex，重扫时跳过
     @Volatile private var building = false
+    @Volatile private var prefetched = false
+
+    /**
+     * 模块会用到的全部关键词。
+     *
+     * 一次全量扫描 437MB / 55 个 dex 的开销不小，而适配流程会分十几处查字符串特征。
+     * 所以启动时把这批关键词一次扫完（见 prefetch），之后查询都读缓存；
+     * 不在列表里的关键词才触发单独一次扫描。
+     */
+    val PREFETCH_KEYWORDS = listOf(
+        // 分享面板
+        "share_panel", "share_bottom", "share_bar", "SharePanel",
+        "share_bottom_sheet", "share_hsv", "shareAddTool",
+        // 自动播放
+        "auto_play_key", "AutoPlayController",
+        // 电商/商城
+        "feedShopCard", "live_commerce", "watermark",
+        // 下载/网络
+        "CronetUrlRequest", "playwm"
+    )
+
+    /** 启动时预取：一次扫完，缓存 关键词 -> 类 的映射 */
+    fun prefetch(apkPath: String) {
+        if (prefetched || building) return
+        Thread({
+            building = true
+            runCatching {
+                HookUtils.log("DexStringIndex: 预取 ${PREFETCH_KEYWORDS.size} 个关键词")
+                val need = PREFETCH_KEYWORDS.filter { !DexStringSeed.isScanned(it) }
+                if (need.isEmpty()) { HookUtils.log("DexStringIndex: 种子表已全覆盖，无需扫描"); return@Thread }
+                build(apkPath, need)
+                prefetched = true
+                HookUtils.log("DexStringIndex: 预取完成，命中关键词 ${keywordToClasses.size} 个")
+            }.onFailure {
+                HookUtils.log("DexStringIndex: 预取失败 ${it.message}")
+            }
+            building = false
+        }, "dyyds-dexstridx").apply { isDaemon = true; start() }
+    }
 
     val keywordCount: Int get() = keywordToClasses.size
     val classCount: Int get() = classToKeywords.size
@@ -57,13 +97,17 @@ object DexStringIndex {
                 HookUtils.log("DexStringIndex: ${dexEntries.size} 个 dex, 关键词 ${fresh.size} 个")
 
                 for (name in dexEntries) {
-                    if (name in indexed) continue
+                    // 不能因为「这个 dex 扫过」就整体跳过：每批关键词都要重扫
+                    // 字符串池与 const-string 归属，否则第二批关键词永远查不到。
+                    // 这里只跳过解析失败过的 dex。
+                    if (name in failedDex) continue
                     zf.getInputStream(zf.getEntry(name)!!).use { input ->
                         val bytes = input.readBytes()
                         try {
                             scanDex(bytes, fresh.toSet())
                         } catch (t: Throwable) {
                             HookUtils.log("DexStringIndex: $name 解析失败 ${t.message}")
+                            failedDex.add(name)
                         }
                     }
                     indexed.add(name)
@@ -91,17 +135,34 @@ object DexStringIndex {
     fun keywordsOf(classDescriptor: String): List<String> = classToKeywords[classDescriptor]?.toList() ?: emptyList()
 
     /** 便捷入口：给定宿主 ClassLoader 和关键词，返回「关键词 -> 类描述符」 */
+    /**
+     * 先查随包发布的种子表（[DexStringSeed]），表里没有的关键词才触发运行时扫描。
+     *
+     * 种子表是离线对当前抖音版本全量扫出来的（55 dex / 437MB，几秒），
+     * 随包发布后运行时零扫描；抖音换版本时表里查不到，才回退到 [build]。
+     */
     fun classesUsingStrings(
         classLoader: ClassLoader,
         keywords: List<String>
     ): List<String> {
-        val apk = runCatching { ContextHelper.getContext()?.applicationInfo?.sourceDir }.getOrNull()
-        if (apk.isNullOrEmpty()) {
-            HookUtils.log("DexStringIndex: 拿不到宿主 APK 路径")
-            return emptyList()
-        }
         val out = LinkedHashSet<String>()
-        build(apk, keywords).forEach { (_, classes) -> out.addAll(classes) }
+        val missing = ArrayList<String>()
+        for (k in keywords) {
+            out.addAll(DexStringSeed.classesFor(k))
+            // 种子表里「已扫描但 0 命中」的关键词也算数，不再触发运行时全量扫
+            if (!DexStringSeed.isScanned(k)) missing.add(k)
+        }
+        if (missing.isNotEmpty()) {
+            HookUtils.log("DexStringIndex: 种子表未覆盖 ${missing.size} 个关键词，回退扫描: $missing")
+            val apk = DexKitManager.hostApkPath()
+                ?: runCatching { ContextHelper.getContext()?.applicationInfo?.sourceDir }.getOrNull()
+            if (apk.isNullOrEmpty()) {
+                HookUtils.log("DexStringIndex: 拿不到宿主 APK 路径")
+                return out.toList()
+            }
+            build(apk, missing)
+            missing.forEach { k -> out.addAll(keywordToClasses[k].orEmpty()) }
+        }
         return out.toList()
     }
 
