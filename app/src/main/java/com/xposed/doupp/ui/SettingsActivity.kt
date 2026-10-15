@@ -48,7 +48,7 @@ class SettingsActivity : PreferenceActivity() {
 
         private val adChildKeys = arrayOf(
             "skip_splash_ad", "block_feed_keywords", "block_shopping",
-            "hide_ad_labels", "block_ad_sdk", "ad_keywords", "block_hot_update"
+            "hide_ad_labels", "block_ad_sdk", "ad_keywords", "block_hot_update","block_beta_invite"
         )
 
         private fun updateAdChildrenEnabled(enabled: Boolean) {
@@ -87,6 +87,7 @@ class SettingsActivity : PreferenceActivity() {
             safePref("block_ad_sdk") { DouSettings.setBlockAdSdk(it as Boolean) }
             safePref("ad_keywords") { DouSettings.setAdKeywords(it as String) }
             safePref("block_hot_update") { DouSettings.setBlockHotUpdate(it as Boolean) }
+            safePref("block_beta_invite") { DouSettings.setBlockBetaInvite(it as Boolean) }
             safePref("save_comment_media") { DouSettings.setSaveCommentMedia(it as Boolean) }
             safePref("save_directory") { DouSettings.setSaveDirectory(it as String) }
             safePref("video_filter") { v ->

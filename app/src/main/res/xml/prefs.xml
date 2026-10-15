@@ -81,6 +81,13 @@
             android:summary="@string/pref_block_hot_update_summary"
             android:defaultValue="true" />
 
+        <CheckBoxPreference
+            android:key="block_beta_invite"
+            android:title="@string/pref_block_beta_invite_title"
+            android:summary="@string/pref_block_beta_invite_summary"
+            android:defaultValue="true" />
+
+
     </PreferenceCategory>
 
     <!-- ==================== 评论区 ==================== -->

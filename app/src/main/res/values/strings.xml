@@ -177,4 +177,7 @@
     <string name="pref_mall_probe_title">电商适配状态</string>
     <string name="pref_mall_probe_summary">显示电商相关类在当前抖音版本的适配结果</string>
 
+    <string name="pref_block_beta_invite_title">屏蔽新版本内测弹窗</string>
+    <string name="pref_block_beta_invite_summary">按弹窗文案识别并拦下「内测 / 抢先体验」类邀请弹窗，换版本不用改</string>
+
 </resources>
