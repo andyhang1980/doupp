@@ -22,6 +22,22 @@
   外加 `hideViews` 按包关键词补捞（`feed.video.product` / `shopcard` + Card|Tag|Shop|Product）
   把商品卡和 presenter 一起 GONE。已全部移除：**商品卡一律不碰，宁可少命中也不误伤**
 
+- **所有开关偶发失效（DouSettings 读不到模块设置）** — 根因是跨进程读取链路整条断的：
+  - LSPosed 对 `xposedminversion > 92` 的模块会把宿主的 `ContextImpl.getPreferencesDir()`
+    重定向到 `<misc>/prefs/<模块包名>`，所以模块 prefs **根本不在** `/data/data/com.xposed.doupp/shared_prefs/`
+    —— 原实现「手工 chmod 成 world-readable 再直接读文件」这条路必然是空
+  - `contentResolver.call("content://com.xposed.doupp.settings")` 在宿主进程报
+    `Unknown authority`：Android 11+ 包可见性让抖音进程看不到模块包，除非抖音自己声明 `<queries>`
+    （改不了宿主的 manifest），所以 ContentProvider 兜底也白搭
+  - `getRemotePreferences()` 返回非空但**全空**（该通道依赖 LSPosed 侧 prefs 镜像，本模块没喂进去）
+  结果就是每次都掉进策略 5「所有策略失败，使用默认值」→ 用户开的开关当次启动全被忽略
+  （真机日志实锤：`live_clean=true` 但 `LiveClean: 开关关闭，跳过`）。
+  修法：新增两条真正能走通的读取路径 ——
+  1. `de.robv.android.xposed.XSharedPreferences(MODULE_PACKAGE, "douyin_helper_settings")`
+     （LSPosed 自带类，自己走文件服务拿正确路径与 SELinux 许可，反射调用不硬引依赖）
+  2. 通过 `ApplicationServiceClient.getPrefsPath()` 问守护进程要 prefs 目录，再自己解析 XML
+  两条都失败才回落到老链路，老链路行为不变（纯增量）
+
 - **ClassFinder 扫描后全空** — 原实现用 `scannedClassLoaders` 标记「这个 ClassLoader 已扫过」，
   导致第一次扫完某个包之后所有后续包扫描都直接返回空。改为按 ClassLoader 缓存完整类名列表。
 - **全量 Class.forName 拖垮宿主** — 原实现对整个包做 `Class.forName`，
@@ -55,7 +71,9 @@
 - 参考插件 `0920131537` 的电商锚点（`getLiveCommercePlaceholderBind` / `C0526.m1395` 注册式）
   在 40.7.0 全部 0 命中，无法照搬其做法，本项目商城锚点为独立摸排结果
 - 商城引流弹窗目前按类名拦截已装好，但还没在真实会话里抓到一次弹窗触发日志证明拦下
-- `DouSettings` 偶发「远程 prefs 为空，跳过…使用默认值」，导致当次启动开关读不到，需要查
+- 跨进程设置读取的新链路（XSharedPreferences / 守护进程 prefs 路径）已写好并编译通过，
+  但设备掉线，**尚未上机验证**；要看着日志确认出现
+  `DouSettings: XSharedPreferences 初始化成功` 或 `直接读 LSPosed 的 prefs 目录…成功`
 
 - `AutoPlayControllerHook` 内部仍引用 `yyds.C1714` / `yyds.InterfaceC1354` / `yyds.C2429`（抖音 39.x 类名），
   40.7.0 上 `yyds` 包已不存在，该 Hook 当前不生效，需要按新锚点重写。

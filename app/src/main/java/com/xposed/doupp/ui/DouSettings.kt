@@ -486,10 +486,43 @@ object DouSettings {
                 HookUtils.log("DouSettings: getRemotePreferences 失败: ${t.message}")
             }
 
-            // 策略A（首选）: 直接读取模块 data 目录下的 prefs 文件
-            // 说明: 本机 LSPosed 未把 de.robv.android.xposed.XSharedPreferences 注入模块类加载器，
-            // 但模块 data 目录已被设为 world-readable(0755)、prefs 文件 world-readable(0644)，
-            // 因此抖音进程可直接读取该文件，无需依赖 XSharedPreferences 类。
+            // 策略0.1: LSPosed 传统 XSharedPreferences
+            // LSPosed 对 xposedminversion > 92 的模块会把 ContextImpl.getPreferencesDir()
+            // 整个重定向到 <misc>/prefs/<模块包名>，所以模块 prefs 文件根本不在
+            // /data/data/<模块包名>/shared_prefs/ 下 —— 手工 chmod 那条路是错的路。
+            // XSharedPreferences 会自己通过 LSPosed 文件服务拿到正确路径与 SELinux 许可。
+            try {
+                val xsp = newLegacyXSharedPreferences()
+                if (xsp != null) {
+                    val all = xsp.all
+                    if (all.isNotEmpty()) {
+                        prefs = xsp
+                        HookUtils.log("DouSettings: XSharedPreferences 初始化成功 (${all.size} keys)")
+                        return@synchronized
+                    }
+                    HookUtils.log("DouSettings: XSharedPreferences 可用但为空")
+                }
+            } catch (t: Throwable) {
+                HookUtils.log("DouSettings: XSharedPreferences 失败: ${t.message}")
+            }
+
+            // 策略0.2: 直接读 LSPosed 的 prefs 目录
+            // 路径由 LSPosed 守护进程给出（ApplicationServiceClient#getPrefsPath），
+            // 拿到后自己解析 XML，绕开 ContentProvider 的包可见性限制
+            // （Android 11+ 宿主看不到模块包，contentResolver.call 会报 Unknown authority）。
+            try {
+                val lspFile = resolveLsposedPrefsFile()
+                if (lspFile != null) {
+                    prefs = FileBasedPrefs(lspFile)
+                    HookUtils.log("DouSettings: LSPosed prefs 文件读取成功 (${lspFile.absolutePath})")
+                    return@synchronized
+                }
+            } catch (t: Throwable) {
+                HookUtils.log("DouSettings: LSPosed prefs 路径探测失败: ${t.message}")
+            }
+
+            // 策略A: 直接读取模块 data 目录下的 prefs 文件
+            // 仅对没有重定向 prefs 目录的框架（旧 Xposed / FPA）有效，LSPosed 上大概率不存在。
             try {
                 val candidates = mutableListOf<java.io.File>()
                 candidates.add(java.io.File("/data/data/$MODULE_PACKAGE/shared_prefs/$PREFS_NAME.xml"))
@@ -588,6 +621,67 @@ object DouSettings {
         }
     }
 
+    /** 可能持有 LSPosed 注入类的 ClassLoader（按可信度排序，去重） */
+    private fun candidateClassLoaders(): List<ClassLoader> {
+        val list = mutableListOf<ClassLoader>()
+        runCatching { javaClass.classLoader?.let { list.add(it) } }
+        runCatching { ClassLoader.getSystemClassLoader()?.let { list.add(it) } }
+        runCatching { com.xposed.doupp.util.ContextHelper.getContext()?.classLoader?.let { list.add(it) } }
+        return list
+    }
+
+    /**
+     * 构造 LSPosed 的传统 XSharedPreferences（名字固定，不在模块代码里直接引用，
+     * 因此在没有该类的框架上不会 NoClassDefFoundError）。
+     *
+     * 构造器形态跨版本不一致，按 (模块包名, prefs 名) / (prefs 名) 两种依次尝试。
+     */
+    private fun newLegacyXSharedPreferences(): SharedPreferences? {
+        val clsName = "de.robv.android.xposed.XSharedPreferences"
+        for (cl in candidateClassLoaders()) {
+            val cls = try {
+                Class.forName(clsName, false, cl)
+            } catch (_: Throwable) {
+                continue
+            }
+            val inst = runCatching {
+                // LSPosed/Xposed 的签名是 (模块包名, prefs 文件名不带 .xml)
+                cls.getConstructor(String::class.java, String::class.java)
+                    .newInstance(MODULE_PACKAGE, PREFS_NAME)
+            }.getOrNull() ?: continue
+            if (inst is SharedPreferences) {
+                runCatching { cls.getMethod("reload").invoke(inst) }
+                return inst
+            }
+        }
+        return null
+    }
+
+    /**
+     * 问 LSPosed 守护进程要模块 prefs 目录，再自己拼出 XML 文件路径。
+     *
+     * ApplicationServiceClient 是 LSPosed 注入宿主进程的 core 类；拿不到就返回 null，
+     * 调用方继续走别的策略，不会因为框架版本差异炸掉。
+     */
+    private fun resolveLsposedPrefsFile(): java.io.File? {
+        val clsName = "org.lsposed.lspd.core.ApplicationServiceClient"
+        for (cl in candidateClassLoaders()) {
+            try {
+                val cls = Class.forName(clsName, false, cl)
+                val instance = cls.getDeclaredField("instance").let { f ->
+                    f.isAccessible = true
+                    f.get(null)
+                } ?: continue
+                val base = cls.getMethod("getPrefsPath", String::class.java)
+                    .invoke(instance, MODULE_PACKAGE) as? String ?: continue
+                val file = java.io.File(base, "$PREFS_NAME.xml")
+                if (file.exists() && file.canRead()) return file
+            } catch (_: Throwable) {
+            }
+        }
+        return null
+    }
+
     /**
      * 基于文件的 SharedPreferences 实现
      * 直接读取 XML 文件，用于跨进程读取
@@ -625,6 +719,25 @@ object DouSettings {
                     val value = node.attributes.getNamedItem("value")?.nodeValue?.toIntOrNull() ?: continue
                     map[key] = value
                 }
+                val longNodes = doc.getElementsByTagName("long")
+                for (i in 0 until longNodes.length) {
+                    val node = longNodes.item(i)
+                    val key = node.attributes.getNamedItem("name")?.nodeValue ?: continue
+                    val value = node.attributes.getNamedItem("value")?.nodeValue?.toLongOrNull() ?: continue
+                    map[key] = value
+                }
+                val setNodes = doc.getElementsByTagName("set")
+                for (i in 0 until setNodes.length) {
+                    val node = setNodes.item(i)
+                    val key = node.attributes.getNamedItem("name")?.nodeValue ?: continue
+                    val children = node.childNodes
+                    val values = mutableSetOf<String>()
+                    for (j in 0 until children.length) {
+                        val child = children.item(j)
+                        if (child.nodeName == "string") values.add(child.textContent ?: "")
+                    }
+                    map[key] = values
+                }
             } catch (t: Throwable) {
                 HookUtils.log("FileBasedPrefs: 加载失败: ${t.message}")
             }
@@ -632,7 +745,9 @@ object DouSettings {
 
         override fun getAll(): Map<String, *> = map
         override fun getString(key: String, defValue: String?): String? = (map[key] as? String) ?: defValue
-        override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? = defValues
+        override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? =
+            @Suppress("UNCHECKED_CAST")
+            (map[key] as? Set<String>) ?: defValues
         override fun getInt(key: String, defValue: Int): Int = (map[key] as? Int) ?: defValue
         override fun getLong(key: String, defValue: Long): Long = (map[key] as? Long) ?: defValue
         override fun getFloat(key: String, defValue: Float): Float = (map[key] as? Float) ?: defValue
