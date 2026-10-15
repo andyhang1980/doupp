@@ -3,6 +3,7 @@ package com.xposed.doupp.hook
 import android.os.Handler
 import android.os.Looper
 import com.xposed.doupp.ui.DouSettings
+import com.xposed.doupp.util.ClassFinder
 import com.xposed.doupp.util.DexKitManager
 import com.xposed.doupp.util.HookUtils
 import com.xposed.doupp.util.MediaCache
@@ -27,6 +28,15 @@ import java.lang.reflect.Modifier
  *
  * triggerMoveToNext() 沿用官方机制：向 AutoPlayViewModel.e (QLiveData) postValue，
  * 其 moveToNextActionObserver 会执行 feedViewPagerContext.LJIILIIL("AutoPlayComponent", true)。
+ *
+ * ## 40.7.0 实测（dexdump classes43.dex）
+ * - 载体类 AutoPlayViewModel / AutoPlayComponent 在 feed.plato 包下**没被混淆**，
+ *   方法名变成 Xz(功能总开关 static)/Wz(用户开关)/Vz(开关 LiveData)，字段 e 是 QLiveData。
+ *   所以按结构识别成员（static ()Z / ()Z / ()QLiveData / QLiveData 字段）而不是写死名字。
+ * - 开关值存在 Keva 里，键名就是字面量 "auto_play_key"：
+ *     读 LX/1QnY;.LIZ(String)Z  -> Keva.getBoolean(String, boolean)
+ *     写 LX/1QnY;.LIZIZ()Keva   -> Keva.storeBoolean(String, boolean)
+ *   载体 LX/1QnY 每版本会变，Keva（com.bytedance.keva.Keva）是稳定库，所以拦在 Keva 层。
  */
 class AutoPlayControllerHook : BaseHook {
 
@@ -36,6 +46,9 @@ class AutoPlayControllerHook : BaseHook {
         // 39.6 兜底类名（DexKit 命中失败时使用）
         private const val VM_CLASS_FALLBACK =
             "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay.AutoPlayViewModel"
+
+        /** 抖音主包：种子表按包过滤时用 */
+        private const val AWEME_ROOT = "com.ss.android.ugc.aweme"
 
         @Volatile
         private var installed = false
@@ -51,13 +64,16 @@ class AutoPlayControllerHook : BaseHook {
 
         private val hooked = HashSet<String>()
 
-        // Keva 同步缓存（避免每次反射）
-        @Volatile private var kevaContainer: Any? = null
-        @Volatile private var kevaKeys: Any? = null
-        @Volatile private var kevaPutMethod: Method? = null
-        @Volatile private var kevaAutoPlayKey: Any? = null
-        /** 上一次同步到 Keva 的值，避免反复写入 */
-        @Volatile private var lastKevaSync: Boolean? = null
+        // Keva 通道：40.7.0 实测抖音把自动连播开关存在 Keva 里，键名就是字面量 "auto_play_key"
+        @Volatile private var kevaHooked = 0
+        private val kevaReads = java.util.concurrent.atomic.AtomicLong(0)
+        private val kevaWrites = java.util.concurrent.atomic.AtomicLong(0)
+
+        /** 抖音 Keva 里自动连播的键名（dexdump classes43.dex 实证） */
+        private const val AUTO_PLAY_KEY = "auto_play_key"
+
+        /** 40.7.0 上 Keva 的真实包名（字节自研，托管在 com.bytedance.keva） */
+        private const val KEVA_CLASS = "com.bytedance.keva.Keva"
 
         // triggerMoveToNext 供视频过滤（VideoFilterHook）跳过使用
 
@@ -65,7 +81,6 @@ class AutoPlayControllerHook : BaseHook {
         val autoPlay = DouSettings.isAutoPlayEnabled()
         if (!autoPlay) {
             HookUtils.log("$TAG: enabled=false (autoPlay=false)")
-            syncKevaIfNeeded(false)
             return false
         }
         val live = isCurrentAwemeLive()
@@ -76,103 +91,115 @@ class AutoPlayControllerHook : BaseHook {
         // 官方仅在 playableFinished / awemeCompleted（视频播完）时读取 rL1/tL1 决定是否连播，
         // 播完时进度必然是 100%，因此这里不需要进度门控 —— 之前的 70% 进度检查会在视频
         // 开头把用户开关读到 false，导致官方 uL1() 直接 postValue FALSE 取消整个连播调度。
-        syncKevaIfNeeded(true)
         return true
     }
 
-    private fun syncKevaIfNeeded(value: Boolean) {
-        if (lastKevaSync == value) return
-        lastKevaSync = value
-        val put = kevaPutMethod
-        val container = kevaContainer
-        val key = kevaAutoPlayKey
-        if (put == null || container == null || key == null) return
-        try {
-            put.invoke(container, key, value)
-            HookUtils.log("$TAG: syncKeva -> $value ok")
-        } catch (t: Throwable) {
-            HookUtils.log("$TAG: syncKeva fail: ${t.message}")
-        }
-    }
-
     /**
-     * 运行时扫描 C1714 类，自动查找 Keva 容器（类型含 m4078 方法的静态字段）
-     * 和键数组（InterfaceC1354[] 静态字段）及 auto-play 键（索引 22）。
+     * 拦 Keva 里的 auto_play_key 读写，让官方的自动连播开关跟着模块走。
+     *
+     * 40.7.0 实测（dexdump classes43.dex）：
+     *   读  LX/1QnY;.LIZ("auto_play_key")Z -> Keva.getBoolean(String, boolean)
+     *   写  LX/1QnY;.LIZIZ()Keva -> Keva.storeBoolean("auto_play_key", v)
+     * 载体 LX/1QnY 每个版本都会变，Keva 是稳定库 —— 所以拦在 Keva 这一层，
+     * 不去猜「哪个混淆类持有容器」（39.x 那种反射 C1714 静态字段的做法在新版本上全是死代码）。
      */
-    @JvmStatic
-    fun initKevaCache(classLoader: ClassLoader) {
-        if (kevaContainer != null) return
-        try {
-            val c1714 = Class.forName("yyds.C1714", false, classLoader)
-            // 找键数组: 找到 InterfaceC1354[] 静态字段（取索引 22 = auto-play 键）
-            val iface1354Class = try { Class.forName("yyds.InterfaceC1354", false, classLoader) } catch (_: Throwable) { null }
-            for (f in c1714.declaredFields) {
-                if (java.lang.reflect.Modifier.isStatic(f.modifiers) && f.type.isArray) {
-                    try {
-                        val arrObj = f.get(null) ?: continue
-                        val len = java.lang.reflect.Array.getLength(arrObj)
-                        if (len == 0) continue
-                        val elem = java.lang.reflect.Array.get(arrObj, 0) ?: continue
-                        // 判断元素是否为 InterfaceC1354 实例
-                        if (iface1354Class == null || iface1354Class.isInstance(elem)) {
-                            f.isAccessible = true
-                            val arr = arrObj as? Array<*> ?: continue
-                            kevaKeys = arr
-                            if (len > 22) {
-                                kevaAutoPlayKey = arr[22]
-                                HookUtils.log("$TAG: Keva 键数组=${f.name}, size=$len")
+    private fun hookKevaChannel(classLoader: ClassLoader) {
+        val hookedClasses = HashSet<String>()
+        var total = 0
+
+        fun hookOn(cls: Class<*>): Int {
+            if (!hookedClasses.add(cls.name)) return 0
+            var n = 0
+            for (m in cls.declaredMethods) {
+                if (Modifier.isStatic(m.modifiers)) continue
+                val p0 = m.parameterTypes.getOrNull(0)
+                val p1 = m.parameterTypes.getOrNull(1)
+                val isBoolSlot =
+                    m.parameterCount == 2 && p0 == String::class.java && p1 == Boolean::class.javaPrimitiveType
+
+                // 读：键命中就返回模块开关，官方后面所有判断自动跟着变
+                if (isBoolSlot && m.name == "getBoolean" &&
+                    m.returnType == Boolean::class.javaPrimitiveType
+                ) {
+                    m.isAccessible = true
+                    XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            if (param.getArg(0) as? String != AUTO_PLAY_KEY) return
+                            val want = enabled()
+                            param.result = want
+                            val n = kevaReads.incrementAndGet()
+                            if (n <= 2L || n % 100L == 0L) {
+                                HookUtils.log("$TAG: Keva 读 $AUTO_PLAY_KEY -> $want（第 $n 次）")
                             }
-                            break
                         }
-                    } catch (_: Throwable) {}
+                    })
+                    n++
                 }
-            }
-            val ifaceKey = kevaAutoPlayKey?.javaClass ?: run {
-                HookUtils.log("$TAG: Keva 未找到键类型")
-                return
-            }
-            // 找 Keva 容器: 静态字段，其类型含 put(ifaceKey, Object) 方法
-            for (f in c1714.declaredFields) {
-                if (java.lang.reflect.Modifier.isStatic(f.modifiers) && !f.type.isArray) {
-                    for (m in f.type.declaredMethods) {
-                        if (m.parameterCount == 2 && m.returnType == Void.TYPE &&
-                            m.parameterTypes[0] == ifaceKey && m.parameterTypes[1] == Any::class.java) {
-                            f.isAccessible = true
-                            kevaContainer = f.get(null)
-                            kevaPutMethod = m
-                            HookUtils.log("$TAG: Keva 容器=${f.name}.${m.name}(${m.parameterTypes[0].simpleName},${m.parameterTypes[1].simpleName})")
-                            break
-                        }
-                    }
-                    if (kevaContainer != null) break
-                }
-            }
-            if (kevaContainer == null) {
-                // 兜底: 只在 C2429 类中找 put(InterfaceC1354, Object) 方法
-                val c2429 = try { Class.forName("yyds.C2429", false, classLoader) } catch (_: Throwable) { null }
-                if (c2429 != null) {
-                    for (m in c2429.declaredMethods) {
-                        if (m.parameterCount == 2 && m.returnType == Void.TYPE &&
-                            m.parameterTypes[1] == Any::class.java && m.parameterTypes[0].name.contains("InterfaceC")) {
-                            for (f in c1714.declaredFields) {
-                                if (java.lang.reflect.Modifier.isStatic(f.modifiers) && f.type == c2429) {
-                                    f.isAccessible = true
-                                    kevaContainer = f.get(null)
-                                    kevaPutMethod = m
-                                    HookUtils.log("$TAG: Keva 容器 兜底=${f.name}.${m.name}()")
-                                    break
-                                }
+
+                // 写：把官方写进去的值改成模块开关。
+                // 不吞掉写入 —— 吞了会让官方 UI 显示和实际状态对不上，用户会以为没生效。
+                if (isBoolSlot && m.name == "storeBoolean" && m.returnType == Void.TYPE) {
+                    m.isAccessible = true
+                    XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            if (param.getArg(0) as? String != AUTO_PLAY_KEY) return
+                            val want = enabled()
+                            val origin = param.getArg(1)
+                            if (origin != want) {
+                                param.args[1] = want
+                                val n = kevaWrites.incrementAndGet()
+                                HookUtils.log("$TAG: Keva 写 $AUTO_PLAY_KEY 改写 $origin -> $want（第 $n 次）")
                             }
-                            if (kevaContainer != null) break
                         }
-                    }
+                    })
+                    n++
                 }
             }
-            if (kevaContainer == null) HookUtils.log("$TAG: Keva 容器未找到")
-            if (kevaAutoPlayKey == null) HookUtils.log("$TAG: Keva auto-play key 未找到")
-        } catch (t: Throwable) {
-            HookUtils.log("$TAG: initKevaCache 失败: ${t.message}")
+            total += n
+            return n
         }
+
+        val keva = try {
+            Class.forName(KEVA_CLASS, false, classLoader)
+        } catch (t: Throwable) {
+            HookUtils.log("$TAG: Keva 未加载(${t.message})，仅靠 ViewModel 门控")
+            return
+        }
+        // Keva 是 PUBLIC ABSTRACT，getBoolean/storeBoolean 由实现类（40.7.0 是 KevaImpl）实现。
+        // 只 hook 抽象基类不会生效 —— invoke-virtual 直接分派到实现类，这就是之前一次读取日志都没有的原因。
+        val n = hookOn(keva)
+        for (implName in listOf("com.bytedance.keva.KevaImpl", "com.tencent.keva.Keva")) {
+            runCatching { Class.forName(implName, false, classLoader) }
+                .onSuccess { hookOn(it) }
+        }
+        if (n == 0) {
+            HookUtils.log("$TAG: 基类上没有可 hook 的读写方法（实现类已另挂 ${hookedClasses.size} 个）")
+        }
+
+        // 工厂兜底：任何实现类的实例都从 getRepo 过，拿到实例就把它的 class 也挂上，
+        // 这样换了实现类名也不用改代码。
+        var repoHooked = 0
+        for (m in keva.declaredMethods) {
+            if (!Modifier.isStatic(m.modifiers)) continue
+            if (!m.name.startsWith("getRepo")) continue
+            if (m.returnType != keva) continue
+            m.isAccessible = true
+            XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val impl = param.result?.javaClass ?: return
+                    val before = total
+                    if (hookOn(impl) > 0 && total > before) {
+                        HookUtils.log("$TAG: 从 getRepo 反推实现类 ${impl.name}")
+                    }
+                }
+            })
+            repoHooked++
+        }
+        kevaHooked = total
+        HookUtils.log(
+            "$TAG: Keva 通道 hook $total 个读写方法，挂载 ${hookedClasses.size} 个类，" +
+                "getRepo 工厂 $repoHooked 个"
+        )
     }
 
 
@@ -282,8 +309,8 @@ class AutoPlayControllerHook : BaseHook {
             hookBooleanMethod(clazz, structure.hN1)
             hookBooleanMethod(clazz, structure.jN1)
 
-            // 尝试初始化 Keva 缓存（仅用于兜底同步，不依赖其成功）
-            initKevaCache(classLoader)
+            // Keva 通道：官方的 auto_play_key 读写在这里拦（40.7.0 上有效）
+            hookKevaChannel(classLoader)
 
             if (hooked.isNotEmpty()) {
                 installed = true
@@ -337,28 +364,52 @@ class AutoPlayControllerHook : BaseHook {
     }
 
     /**
-     * 通过 DexKit 字符串定位候选类，再用结构特征确定 AutoPlayViewModel。
-     * 找不到时回退到 39.6 硬编码类名。
+     * 定位 AutoPlayViewModel，三级候选，逐个用结构特征验证：
+     *
+     *  1. 种子表（ClassFinder → DexStringSeed）：离线扫好的 关键词->类 映射，秒级、无重扫
+     *  2. 语义类名：40.7.0 上 feed.plato 的 autoplay 包没被混淆，类名是稳定的
+     *  3. DexKit：全量扫 437MB，只在前两级都没命中时兜底
+     *
+     * 40.7.0 实测 auto_play_key 命中 5 个类，其中两个是真身：
+     *   ...contentconsumption.autoplay.AutoPlayComponent
+     *   ...contentconsumption.autoplay.AutoPlayViewModel
      */
     private fun findAutoPlayViewModelClass(classLoader: ClassLoader): Class<*>? {
-        val candidates = DexKitManager.findClassesByStrings(listOf("auto_play_key"))
-        HookUtils.log("$TAG: DexKit 候选类: $candidates")
-        for (name in candidates) {
-            try {
-                val c = Class.forName(name, false, classLoader)
-                if (analyzeStructure(c) != null) {
-                    HookUtils.log("$TAG: 结构匹配 -> $name")
-                    return c
-                }
+        val tried = LinkedHashSet<String>()
+
+        // 1. 种子表
+        val seeded = runCatching {
+            ClassFinder.findClassNamesByStrings(classLoader, listOf(AWEME_ROOT), listOf(AUTO_PLAY_KEY))
+        }.getOrDefault(emptyList())
+        HookUtils.log("$TAG: 种子表候选 ${seeded.size} 个")
+
+        // 2. 语义类名（多个版本的包路径都试一遍）
+        val semantic = listOf(
+            "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay.AutoPlayViewModel",
+            "com.ss.android.ugc.aweme.contentconsumption.autoplay.AutoPlayViewModel",
+            VM_CLASS_FALLBACK
+        )
+
+        // 3. DexKit 兜底
+        val dexKit = runCatching {
+            DexKitManager.findClassesByStrings(listOf(AUTO_PLAY_KEY))
+        }.getOrDefault(emptyList())
+
+        for (name in (seeded + semantic + dexKit).distinct()) {
+            if (!tried.add(name)) continue
+            val c = try {
+                Class.forName(name, false, classLoader)
             } catch (_: Throwable) {
+                null
+            }
+            if (c == null) continue
+            if (analyzeStructure(c) != null) {
+                HookUtils.log("$TAG: 结构匹配 -> $name")
+                return c
             }
         }
-        HookUtils.log("$TAG: DexKit 无果，回退硬编码类名")
-        return try {
-            Class.forName(VM_CLASS_FALLBACK, false, classLoader)
-        } catch (_: Throwable) {
-            null
-        }
+        HookUtils.log("$TAG: 三级候选都没匹配上（试了 ${tried.size} 个）")
+        return null
     }
 
     /**

@@ -71,6 +71,7 @@ object DouSettings {
     const val KEY_MALL_LIVE_CLEAN = "mall_live_clean"
     const val KEY_MALL_HIDE_ENTRY = "mall_hide_entry"
     const val KEY_MALL_FILTER_VIDEO = "mall_filter_video"
+    const val KEY_LIVE_CLEAN = "live_clean"
     const val KEY_AUTO_SIGNIN = "auto_signin"
     const val KEY_ANTI_REVOKE = "anti_revoke"
     const val KEY_LUCKY_BAG = "lucky_bag"
@@ -89,6 +90,7 @@ object DouSettings {
     private const val DEFAULT_MALL_LIVE_CLEAN = false
     private const val DEFAULT_MALL_HIDE_ENTRY = true
     private const val DEFAULT_MALL_FILTER_VIDEO = false
+    private const val DEFAULT_LIVE_CLEAN = false
     private const val DEFAULT_HIDE_AD_LABELS = true
     private const val DEFAULT_BLOCK_AD_SDK = true
     private const val DEFAULT_BLOCK_HOT_UPDATE = true
@@ -289,6 +291,7 @@ object DouSettings {
                     putBoolean(KEY_MALL_LIVE_CLEAN, DEFAULT_MALL_LIVE_CLEAN)
                     putBoolean(KEY_MALL_HIDE_ENTRY, DEFAULT_MALL_HIDE_ENTRY)
                     putBoolean(KEY_MALL_FILTER_VIDEO, DEFAULT_MALL_FILTER_VIDEO)
+    putBoolean(KEY_LIVE_CLEAN, DEFAULT_LIVE_CLEAN)
                     putBoolean(KEY_HIDE_AD_LABELS, DEFAULT_HIDE_AD_LABELS)
                     putBoolean(KEY_BLOCK_AD_SDK, DEFAULT_BLOCK_AD_SDK)
                     putBoolean(KEY_BLOCK_HOT_UPDATE, DEFAULT_BLOCK_HOT_UPDATE)
@@ -974,6 +977,9 @@ object DouSettings {
     fun isMallHideEntryEnabled(): Boolean =
         getPrefs().getBoolean(KEY_MALL_HIDE_ENTRY, DEFAULT_MALL_HIDE_ENTRY)
 
+    fun isLiveCleanEnabled(): Boolean =
+        getPrefs().getBoolean(KEY_LIVE_CLEAN, DEFAULT_LIVE_CLEAN)
+
     fun isMallFilterVideoEnabled(): Boolean =
         getPrefs().getBoolean(KEY_MALL_FILTER_VIDEO, DEFAULT_MALL_FILTER_VIDEO)
 
@@ -1163,6 +1169,8 @@ object DouSettings {
     fun setMallHideEntry(enabled: Boolean) = putBoolean(KEY_MALL_HIDE_ENTRY, enabled)
 
     fun setMallFilterVideo(enabled: Boolean) = putBoolean(KEY_MALL_FILTER_VIDEO, enabled)
+
+    fun setLiveClean(enabled: Boolean) = putBoolean(KEY_LIVE_CLEAN, enabled)
 
     fun setHideAdLabels(enabled: Boolean) =
         putBoolean(KEY_HIDE_AD_LABELS, enabled)

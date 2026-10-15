@@ -3,6 +3,7 @@ package com.xposed.doupp
 import android.content.Context
 import android.os.Build
 import com.xposed.doupp.hook.AdHook
+import com.xposed.doupp.hook.LiveCleanHook
 import com.xposed.doupp.hook.MallHook
 import com.xposed.doupp.hook.BetaInviteHook
 import com.xposed.doupp.hook.AntiRevokeHook
@@ -209,7 +210,8 @@ class MainHook : XposedModule() {
             FeedHook(),           // Feed 流视频 Hook + Aweme 缓存
             SharePanelHook(),     // 分享面板底部功能按钮（核心入口）
     BetaInviteHook(),         // 屏蔽新版本内测邀请弹窗（按文案识别）
-    MallHook(),              // 商城/电商：商品卡角标隐藏 + 直播间清爽 + 商城入口
+    MallHook(),
+    LiveCleanHook(),
             AdHook(),             // 开屏广告跳过 + 关键词屏蔽 + 购物过滤
             HotUpdateHook(),      // 屏蔽热更新（保护 Hook 不被覆盖）
             ShareHook(),          // 分享拦截 Hook

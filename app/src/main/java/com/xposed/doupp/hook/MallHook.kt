@@ -10,26 +10,22 @@ import com.xposed.doupp.util.ClassFinder
 import com.xposed.doupp.util.HookUtils
 
 /**
- * 商城（电商 / 带货）适配 Hook。
+ * 抖音商城（电商）适配 Hook。
+ *
+ * 定位（2026-10 按需求重新校准）：这个 Hook 只管**抖音商城**——
+ * 商城入口、运营浮层、商城里跳出去的组件。它**不碰**视频里的直播带货 / 小黄车：
+ * 那套视图（ECVideoInnerProductCardView / ECTagLayout / ECDotLayout / ProductPriceView）
+ * 早前被挂过隐藏，结果点小黄车弹出商品卡是空的，属于误伤，已经摘掉。
  *
  * 40.7.0 实测（手机上的实际构建，55 dex / 437MB 全量扫描）：
  *   电商代码全部在主包里，语义包名整体保留：
  *     com.ss.android.ugc.aweme.commerce.*   51 个 dex
- *     com.ss.android.ugc.aweme.ecommerce.*  11 个 dex
- *     com.ss.android.ugc.aweme.ec.*          3 个 dex
- *   带货标记字段名也还在：is_ecommerce / isEC / ecVideo / is_shopping /
- *   commerce_info / product_info
- *   没有独立的抖音商城包（com.ss.android.ugec 在主包 0 命中）
+ *     com.bytedance.android.shopping.*      抖音商城主包
+ *     com.bytedance.android.window.shop.*   商城入口/浮层
  *
- * 四块能力，对应设置里的四个开关：
- *   隐藏商品卡与角标（默认开）— 视频内商品卡 / 电商角标 / 信息流商城卡
- *   直播间清爽模式（默认关）— 电商直播盒子与直播广告中台换成空占位
- *   隐藏商城入口浮层（默认开）— 商城入口与跳转浮层
- *   过滤带货视频（默认关）— 判定可能误伤，由设置页自行决定
- *
- * 原版模块（0920131537）对商城只有直播间清爽模式一处，用的是
- * getLiveCommercePlaceholderBind / getLiveAdPlaceholderBind 两个方法名；
- * 这两个名字在 40.7.0 上已被 R8 抹掉，所以这里改成按电商语义类名锚定。
+ * 原版模块（0920131537）的思路是「方法名锚点 + 一处功能」：C0092 case12/13 注册
+ * getLiveCommercePlaceholderBind / getLiveAdPlaceholderBind（直播间清爽模式）。
+ * 这两个方法名在 40.7.0 上已被 R8 抹掉，所以这里改成按电商语义类名锚定 + 运行时结构识别。
  */
 class MallHook : BaseHook {
 
@@ -39,43 +35,22 @@ class MallHook : BaseHook {
         @Volatile
         private var installed = false
 
-        /** 电商相关视图：初始化后置 GONE */
-        private val CARD_VIEWS = listOf(
-            // 视频内商品卡 + 角标
-            "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product.ECVideoInnerProductCardView",
-            "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product.ECTagLayout",
-            "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product.ECDotLayout",
-            "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product.ECProductInnerLayout"
-        )
-
-        /** 电商直播盒子（直播间清爽模式目标） */
-        private val LIVE_BOX_VIEWS = listOf(
-            "com.ss.android.ugc.aweme.commerce.sdk.hybrid.xelement.ecomlive.ECLiveBoxForLynx",
-            "com.ss.android.ugc.aweme.commerce.sdk.hybrid.xelement.ecomlive.HybridLiveBoxForLynxV2",
-            "com.ss.android.ugc.aweme.commerce.sdk.hybrid.xelement.ecomlive.HybridLiveBoxForLynxV3"
-        )
-
-        /** 直播广告中台 */
-        private val LIVE_AD_TARGETS = listOf(
-            "com.ss.android.ugc.aweme.ad.LiveAdMiddleWareService",
-            "com.ss.android.ugc.aweme.ad.LiveAdCardEventBusWrapper"
-        )
-
-        /** 信息流商城卡片 presenter */
-        private const val SHOP_CARD_PRESENTER =
-            "com.ss.android.ugc.aweme.bizmodule.fullfeed.feedCard.module.shopcard.FeedShopCardPresenter"
+        // 直播间清爽模式的锚点（LIVE_BOX / LIVE_AD）已搬到 LiveCleanHook，这个类只管商城。
+        // 商品卡一律不挂：ECVideoInnerProductCardView / ECTagLayout / ECDotLayout /
+        // ProductPriceView 早前挂过，把点小黄车弹出的商品卡 GONE 掉了，妥妥的误伤。
+        private val CARD_VIEWS = emptyList<String>()
 
         // 商城入口 / 浮层。40.7.0 设备版实测：入口类在字节电商 SDK 包里，不在 aweme.commerce 下
-        //   com.bytedance.android.window.shop.home.module.ECWindowFloatCartEntryModule  浮层购物车入口
-        //   com.ss.android.ugc.aweme.commerce.sdk.bubble.service.MallBubbleServiceImpl   商城气泡
-        //   com.bytedance.android.shopping.mall.homepage.component.ECMFTopBarComponent  商城首页顶栏
-        //   com.ss.android.ugc.aweme.commerce.sdk.feed.videotomall.ECCommerceComponent   视频跳商城
+        //   com.bytedance.android.window.shop.home.module.ECWindowFloatCartModule     浮层购物车入口
+        //   com.ss.android.ugc.aweme.commerce.sdk.bubble.service.MallBubbleServiceImpl 商城气泡
+        //   com.bytedance.android.shopping.mall.homepage.component.ECMFTopBarComponent 商城首页顶栏
+        //   com.ss.android.ugc.aweme.commerce.sdk.feed.videotomall.ECCommerceComponent  视频跳商城
+        // ProductPriceView 不挂：它是商城里商品卡的组成部分，挂了会让商城商品页内容异常。
         private val ENTRY_VIEWS = listOf(
             "com.bytedance.android.window.shop.home.module.ECWindowFloatCartEntryModule",
             "com.ss.android.ugc.aweme.commerce.sdk.bubble.service.MallBubbleServiceImpl",
             "com.bytedance.android.shopping.mall.homepage.component.ECMFTopBarComponent",
-            "com.ss.android.ugc.aweme.commerce.sdk.feed.videotomall.ECCommerceComponent",
-            "com.bytedance.android.shopping.mall.homepage.card.product.ProductPriceView"
+            "com.ss.android.ugc.aweme.commerce.sdk.feed.videotomall.ECCommerceComponent"
         )
 
         private val ENTRY_PKGS = listOf(
@@ -110,13 +85,10 @@ class MallHook : BaseHook {
         HookUtils.safeHook {
             val result = StringBuilder()
 
-            if (DouSettings.isMallHideCardsEnabled()) {
-                result.append(hideViews(classLoader, CARD_VIEWS, "商品卡/角标"))
-            }
-            if (DouSettings.isMallLiveCleanEnabled()) {
-                result.append(hideViews(classLoader, LIVE_BOX_VIEWS, "电商直播盒子"))
-                result.append(hideLiveAd(classLoader))
-            }
+            // 只挂精确类名。早前这里有一段「包内按 Card/Tag/Shop/Product 关键词补捞」，
+            // 结果把 feed.video.product 和 feedCard.module.shopcard 两个包扫进来，
+            // 商品卡/角标/FeedShopCardPresenter 全被 GONE —— 点小黄车弹出空白就是这段造成的。
+            // 关键词补捞太糙，宁可命中少一点也不误伤。
             if (DouSettings.isMallHideEntryEnabled()) {
                 result.append(hideMallEntry(classLoader))
             }
@@ -142,8 +114,11 @@ class MallHook : BaseHook {
     // ------------------------------------------------------------------
 
     /**
-     * 命中策略：先按类名锚定（最稳），锚定不到就在电商相关包下按类名关键词找。
-     * 命中后 hook 构造函数 + onAttachedToWindow，初始化完直接 GONE。
+     * 挂精确类名列表：命中后 hook 构造函数 + onAttachedToWindow，初始化完直接 GONE。
+     *
+     * 不做「按包 + 关键词补捞」—— 早前那段扫的是 feed.video.product / shopcard 业务包，
+     * 过滤词 Card/Tag/Shop/Product 把正常商品卡一起收拾掉，点小黄车弹出空白就是它造成的。
+     * 宁可少命中，也不误伤。
      */
     private fun hideViews(classLoader: ClassLoader, names: List<String>, label: String): String {
         var hit = 0
@@ -151,21 +126,7 @@ class MallHook : BaseHook {
             val cls = ClassFinder.findClass(classLoader, name) ?: continue
             if (hookHideView(cls)) hit++
         }
-        // 锚定类缺失时，退到按包 + 关键词找
-        if (hit == 0) {
-            for (pkg in listOf(
-                "com.ss.android.ugc.aweme.commerce.sdk.feed.video.product",
-                "com.ss.android.ugc.aweme.bizmodule.fullfeed.feedCard.module.shopcard"
-            )) {
-                val candidates = ClassFinder.classNamesInPackage(classLoader, pkg, includeInner = true, limit = 200)
-                    .filter { it.contains("Card") || it.contains("Tag") || it.contains("Shop") || it.contains("Product") }
-                for (n in candidates.take(12)) {
-                    val cls = ClassFinder.findClass(classLoader, n) ?: continue
-                    if (hookHideView(cls)) hit++
-                }
-            }
-        }
-        return "$label:${hit} "
+        return "$label:$hit "
     }
 
     private fun hookHideView(cls: Class<*>): Boolean {
@@ -198,50 +159,14 @@ class MallHook : BaseHook {
 
     private fun hide(target: Any?) {
         val v = target as? View ?: return
-        // 直播间清爽模式下把内部电商子布局也清空，其它模式只隐藏自己
-        if (DouSettings.isMallLiveCleanEnabled()) clearChildren(v)
+        // 只隐藏自己，不动子布局。
+        // 早前这里在清爽模式下还会 clearChildren，把整棵子树都 GONE ——
+        // 商城入口里也塞着别的业务视图，子树一空旁边的布局全塌了。
         runCatching {
             v.visibility = View.GONE
             v.alpha = 0f
             v.isClickable = false
         }
-    }
-
-    private fun clearChildren(v: View) {
-        if (v !is ViewGroup) return
-        for (i in 0 until v.childCount) {
-            runCatching {
-                v.getChildAt(i).visibility = View.GONE
-                clearChildren(v.getChildAt(i))
-            }
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // 直播广告中台
-    // ------------------------------------------------------------------
-
-    private fun hideLiveAd(classLoader: ClassLoader): String {
-        var hit = 0
-        for (name in LIVE_AD_TARGETS) {
-            val cls = ClassFinder.findClass(classLoader, name) ?: continue
-            // 直播广告挂件渲染方法统一返回空
-            runCatching {
-                cls.declaredMethods
-                    .filter { it.parameterTypes.isEmpty() && it.returnType != Void.TYPE }
-                    .filter { it.name.contains("bind", true) || it.name.contains("render", true) || it.name.contains("show", true) || it.name.contains("card", true) }
-                    .take(4)
-                    .forEach { m ->
-                        XposedBridge.hookMethod(m, object : XC_MethodHook() {
-                            override fun afterHookedMethod(param: MethodHookParam) {
-                                runCatching { param.result = null }
-                            }
-                        })
-                        hit++
-                    }
-            }
-        }
-        return "直播广告:${hit} "
     }
 
     // ------------------------------------------------------------------
