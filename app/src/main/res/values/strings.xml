@@ -164,12 +164,8 @@
     <string name="category_mall">电商管理</string>
     <string name="pref_mall_filter_video_title">过滤带货视频</string>
     <string name="pref_mall_filter_video_summary">按电商标记识别带货内容并划走（判定可能不准，误判请关闭）</string>
-    <string name="pref_mall_hide_cards_title">隐藏商品卡与角标</string>
-    <string name="pref_mall_hide_cards_summary">隐藏视频内商品卡、视频电商角标、信息流商城卡片</string>
-    <string name="pref_mall_live_clean_title">直播间清爽模式</string>
-    <string name="pref_mall_live_clean_summary">用空占位替换直播间电商与广告挂件（对标原版模块的直播清爽模式）</string>
-    <string name="pref_mall_hide_entry_title">隐藏商城入口浮层</string>
-    <string name="pref_mall_hide_entry_summary">隐藏商城首页入口与跳转浮层，不影响正常浏览商品</string>
+    <string name="pref_mall_hide_entry_title">拦截商城营销弹窗与推送横幅</string>
+    <string name="pref_mall_hide_entry_summary">按类名拦商城引流弹窗，并隐藏应用内商城推送横幅；不碰商品卡，不影响浏览与下单</string>
 
     <string name="pref_mall_rescan_title">重新扫描电商适配</string>
     <string name="pref_mall_rescan_summary">模块升级或抖音重打包后，清缓存重新定位电商类（需重启抖音生效）</string>

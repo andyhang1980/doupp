@@ -297,19 +297,17 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/category_mall">
+    <PreferenceCategory android:title="@string/category_live">
 
         <CheckBoxPreference
-            android:key="mall_hide_cards"
-            android:title="@string/pref_mall_hide_cards_title"
-            android:summary="@string/pref_mall_hide_cards_summary"
-            android:defaultValue="true" />
-
-        <CheckBoxPreference
-            android:key="mall_live_clean"
-            android:title="@string/pref_mall_live_clean_title"
-            android:summary="@string/pref_mall_live_clean_summary"
+            android:key="live_clean"
+            android:title="@string/pref_live_clean_title"
+            android:summary="@string/pref_live_clean_summary"
             android:defaultValue="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/category_mall">
 
         <CheckBoxPreference
             android:key="mall_hide_entry"

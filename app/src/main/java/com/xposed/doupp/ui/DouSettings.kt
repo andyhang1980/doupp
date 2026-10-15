@@ -67,8 +67,6 @@ object DouSettings {
     const val KEY_SPARK_MESSAGE = "spark_message"
     const val KEY_REGION_UNLOCK = "region_unlock"
     const val KEY_BLOCK_BETA_INVITE = "block_beta_invite"
-    const val KEY_MALL_HIDE_CARDS = "mall_hide_cards"
-    const val KEY_MALL_LIVE_CLEAN = "mall_live_clean"
     const val KEY_MALL_HIDE_ENTRY = "mall_hide_entry"
     const val KEY_MALL_FILTER_VIDEO = "mall_filter_video"
     const val KEY_LIVE_CLEAN = "live_clean"
@@ -86,8 +84,6 @@ object DouSettings {
     private const val DEFAULT_BLOCK_FEED_KEYWORDS = true
     private const val DEFAULT_BLOCK_SHOPPING = true
     private const val DEFAULT_BLOCK_BETA_INVITE = true
-    private const val DEFAULT_MALL_HIDE_CARDS = true
-    private const val DEFAULT_MALL_LIVE_CLEAN = false
     private const val DEFAULT_MALL_HIDE_ENTRY = true
     private const val DEFAULT_MALL_FILTER_VIDEO = false
     private const val DEFAULT_LIVE_CLEAN = false
@@ -287,8 +283,6 @@ object DouSettings {
                     putBoolean(KEY_BLOCK_FEED_KEYWORDS, DEFAULT_BLOCK_FEED_KEYWORDS)
                     putBoolean(KEY_BLOCK_SHOPPING, DEFAULT_BLOCK_SHOPPING)
                     putBoolean(KEY_BLOCK_BETA_INVITE, DEFAULT_BLOCK_BETA_INVITE)
-                    putBoolean(KEY_MALL_HIDE_CARDS, DEFAULT_MALL_HIDE_CARDS)
-                    putBoolean(KEY_MALL_LIVE_CLEAN, DEFAULT_MALL_LIVE_CLEAN)
                     putBoolean(KEY_MALL_HIDE_ENTRY, DEFAULT_MALL_HIDE_ENTRY)
                     putBoolean(KEY_MALL_FILTER_VIDEO, DEFAULT_MALL_FILTER_VIDEO)
     putBoolean(KEY_LIVE_CLEAN, DEFAULT_LIVE_CLEAN)
@@ -968,12 +962,6 @@ object DouSettings {
     fun isBlockBetaInviteEnabled(): Boolean =
         getPrefs().getBoolean(KEY_BLOCK_BETA_INVITE, DEFAULT_BLOCK_BETA_INVITE)
 
-    fun isMallHideCardsEnabled(): Boolean =
-        getPrefs().getBoolean(KEY_MALL_HIDE_CARDS, DEFAULT_MALL_HIDE_CARDS)
-
-    fun isMallLiveCleanEnabled(): Boolean =
-        getPrefs().getBoolean(KEY_MALL_LIVE_CLEAN, DEFAULT_MALL_LIVE_CLEAN)
-
     fun isMallHideEntryEnabled(): Boolean =
         getPrefs().getBoolean(KEY_MALL_HIDE_ENTRY, DEFAULT_MALL_HIDE_ENTRY)
 
@@ -1161,10 +1149,6 @@ object DouSettings {
     fun setBlockShopping(enabled: Boolean) =
         putBoolean(KEY_BLOCK_SHOPPING, enabled)
     fun setBlockBetaInvite(enabled: Boolean) = putBoolean(KEY_BLOCK_BETA_INVITE, enabled)
-
-    fun setMallHideCards(enabled: Boolean) = putBoolean(KEY_MALL_HIDE_CARDS, enabled)
-
-    fun setMallLiveClean(enabled: Boolean) = putBoolean(KEY_MALL_LIVE_CLEAN, enabled)
 
     fun setMallHideEntry(enabled: Boolean) = putBoolean(KEY_MALL_HIDE_ENTRY, enabled)
 

@@ -1,7 +1,6 @@
 package com.xposed.doupp.hook
 
 import android.view.View
-import android.view.ViewGroup
 import com.xposed.doupp.compat.XC_MethodHook
 import com.xposed.doupp.compat.XposedBridge
 import com.xposed.doupp.ui.DouSettings
@@ -12,20 +11,25 @@ import com.xposed.doupp.util.HookUtils
 /**
  * 抖音商城（电商）适配 Hook。
  *
- * 定位（2026-10 按需求重新校准）：这个 Hook 只管**抖音商城**——
- * 商城入口、运营浮层、商城里跳出去的组件。它**不碰**视频里的直播带货 / 小黄车：
- * 那套视图（ECVideoInnerProductCardView / ECTagLayout / ECDotLayout / ProductPriceView）
- * 早前被挂过隐藏，结果点小黄车弹出商品卡是空的，属于误伤，已经摘掉。
+ * 定位（2026-10 按需求重新校准）：这个 Hook 只管**抖音商城**，而且只动「营销打扰」这一层：
+ *   - 商城引流弹窗（MallDrainageDialog / MallDrainageLynxDialog）
+ *   - 应用内商城推送横幅（ShoppingInnerPushWidget / ShoppingMallLowerPriceWidget）
+ * **不碰**商品卡，也不碰视频里的直播带货 / 小黄车：
+ *   ECVideoInnerProductCardView / ECTagLayout / ECDotLayout / ProductPriceView
+ *   早前被挂过隐藏，结果点小黄车弹出商品卡是空的，属于误伤，已经摘掉。
  *
  * 40.7.0 实测（手机上的实际构建，55 dex / 437MB 全量扫描）：
- *   电商代码全部在主包里，语义包名整体保留：
- *     com.ss.android.ugc.aweme.commerce.*   51 个 dex
- *     com.bytedance.android.shopping.*      抖音商城主包
- *     com.bytedance.android.window.shop.*   商城入口/浮层
+ *   - 商城主体是 Lynx/H5：com.bytedance.android.shopping.* 下 mall/feed/jsb、
+ *     hybrid/bridges 一大堆，native 视图类 0 个 —— 商城**页内**的 banner / 商品卡 /
+ *     楼层靠 native 类名根本藏不掉，硬藏只会误伤，所以本 Hook 只管 native 这层。
+ *   - 首页顶部「商城」tab 落在 MallHomeTab / BottomMallHomeTab，但这俩连同
+ *     BaseHomeTab 的方法名全被 R8 打散（LJJLIIIJILLIZJL 那种），按方法名挂等于瞎猜，
+ *     暂不做，见 README 的已知限制。
  *
  * 原版模块（0920131537）的思路是「方法名锚点 + 一处功能」：C0092 case12/13 注册
  * getLiveCommercePlaceholderBind / getLiveAdPlaceholderBind（直播间清爽模式）。
- * 这两个方法名在 40.7.0 上已被 R8 抹掉，所以这里改成按电商语义类名锚定 + 运行时结构识别。
+ * 这两个方法名在 40.7.0 上已被 R8 抹掉（0 命中），所以这里改成
+ * 「类名语义锚定 + 稳定框架方法」：弹窗走 Dialog.show()，横幅走 View 生命周期。
  */
 class MallHook : BaseHook {
 
@@ -38,29 +42,36 @@ class MallHook : BaseHook {
         // 直播间清爽模式的锚点（LIVE_BOX / LIVE_AD）已搬到 LiveCleanHook，这个类只管商城。
         // 商品卡一律不挂：ECVideoInnerProductCardView / ECTagLayout / ECDotLayout /
         // ProductPriceView 早前挂过，把点小黄车弹出的商品卡 GONE 掉了，妥妥的误伤。
-        private val CARD_VIEWS = emptyList<String>()
 
-        // 商城入口 / 浮层。40.7.0 设备版实测：入口类在字节电商 SDK 包里，不在 aweme.commerce 下
-        //   com.bytedance.android.window.shop.home.module.ECWindowFloatCartModule     浮层购物车入口
-        //   com.ss.android.ugc.aweme.commerce.sdk.bubble.service.MallBubbleServiceImpl 商城气泡
-        //   com.bytedance.android.shopping.mall.homepage.component.ECMFTopBarComponent 商城首页顶栏
-        //   com.ss.android.ugc.aweme.commerce.sdk.feed.videotomall.ECCommerceComponent  视频跳商城
-        // ProductPriceView 不挂：它是商城里商品卡的组成部分，挂了会让商城商品页内容异常。
-        private val ENTRY_VIEWS = listOf(
-            "com.bytedance.android.window.shop.home.module.ECWindowFloatCartEntryModule",
-            "com.ss.android.ugc.aweme.commerce.sdk.bubble.service.MallBubbleServiceImpl",
-            "com.bytedance.android.shopping.mall.homepage.component.ECMFTopBarComponent",
-            "com.ss.android.ugc.aweme.commerce.sdk.feed.videotomall.ECCommerceComponent"
+        /**
+         * 商城引流弹窗。40.7.0 实测这条链是干净的：
+         *   MallDrainageDialog / MallDrainageLynxDialog
+         *     -> com.ss.android.ugc.aweme.backflow.IShareShoppingDialog
+         *     -> androidx.appcompat.app.AppCompatDialog -> android.app.Dialog
+         *
+         * 也就是说它们是货真价实的 Dialog，按类名在 Dialog.show() 上拦就行，
+         * 不用去猜那些被 R8 打散的方法名（这些类的 show/内容方法全是 LIZ / LJ 那种）。
+         *
+         * 只拦 MallDrainage*（引流=自动弹的营销弹窗），**不拦** ShareShopping*——
+         * 那几个是用户主动点「分享」时弹的商品分享卡，拦了会把分享功能弄坏，
+         * 和点小黄车弹空商品卡是同一类事故。
+         */
+        private val MALL_DRAINAGE_DIALOGS = setOf(
+            "com.ss.android.ugc.aweme.commerce.sdk.share.view.MallDrainageDialog",
+            "com.ss.android.ugc.aweme.commerce.sdk.share.view.MallDrainageLynxDialog"
         )
 
-        private val ENTRY_PKGS = listOf(
-            "com.bytedance.android.window.shop.home.module",
-            "com.ss.android.ugc.aweme.commerce.sdk.bubble",
-            "com.bytedance.android.shopping.mall.homepage.component",
-            "com.ss.android.ugc.aweme.commerce.sdk.feed.videotomall"
+        /**
+         * 应用内商城推送横幅（降价提醒 / 商城内推）。都是 View，直接 GONE：
+         *   ShoppingInnerPushWidget      extends innerpush.api.banner.BaseBannerView
+         *   ShoppingMallLowerPriceWidget extends innerpush.api.banner.BaseBannerViewNormative
+         *
+         * 挂横幅不碰商品：这只是「进应用时弹的那条横幅」，商城页面本身照常打开。
+         */
+        private val MALL_PUSH_BANNERS = listOf(
+            "com.ss.android.ugc.aweme.commerce.sdk.push.ShoppingInnerPushWidget",
+            "com.ss.android.ugc.aweme.commerce.sdk.push.ShoppingMallLowerPriceWidget"
         )
-
-        private val ENTRY_KEYWORDS = listOf("Entry", "Bubble", "FloatCart", "TopBar")
 
         /** 40.7.0 带货标记字段（补 VideoFilterHook 只认 39.x 字段名的缺口） */
         val MALL_FLAGS = listOf(
@@ -85,12 +96,9 @@ class MallHook : BaseHook {
         HookUtils.safeHook {
             val result = StringBuilder()
 
-            // 只挂精确类名。早前这里有一段「包内按 Card/Tag/Shop/Product 关键词补捞」，
-            // 结果把 feed.video.product 和 feedCard.module.shopcard 两个包扫进来，
-            // 商品卡/角标/FeedShopCardPresenter 全被 GONE —— 点小黄车弹出空白就是这段造成的。
-            // 关键词补捞太糙，宁可命中少一点也不误伤。
             if (DouSettings.isMallHideEntryEnabled()) {
-                result.append(hideMallEntry(classLoader))
+                result.append(blockMallDrainageDialogs(classLoader))
+                result.append(hideViews(classLoader, MALL_PUSH_BANNERS, "商城推送横幅"))
             }
             if (DouSettings.isMallFilterVideoEnabled()) {
                 result.append("带货过滤=已启用(由 VideoFilterHook 判定) ")
@@ -170,50 +178,48 @@ class MallHook : BaseHook {
     }
 
     // ------------------------------------------------------------------
-    // 商城入口浮层
+    // 商城营销弹窗 + 推送横幅
     // ------------------------------------------------------------------
 
-    private fun hideMallEntry(classLoader: ClassLoader): String {
+    /**
+     * 拦商城引流弹窗。
+     *
+     * 挂点选 android.app.Dialog.show() 而不是弹窗自己的方法：这些类的 show/内容方法
+     * 在 40.7.0 上全是 R8 打散的（LIZ / LJFF / 反射出来的 ?），按方法名挂等于瞎猜；
+     * 而 Dialog.show() 是框架方法，名字永远在，类名又保留了语义（MallDrainage=引流），
+     * 两边都稳定才叫锚点。
+     *
+     * 子类有可能自己重写 show()，所以除了框架那个，再各挂一次目标类自己声明的 show()。
+     * before 里直接 setResult 跳过原方法（compat 实现里 before 置 result 即跳过原方法）。
+     */
+    private fun blockMallDrainageDialogs(classLoader: ClassLoader): String {
         var hit = 0
-        // 1) 精确类名锚定
-        for (n in ENTRY_VIEWS) {
-            val cls = ClassFinder.findClass(classLoader, n) ?: continue
-            if (hookHideViewOrService(cls)) hit++
-        }
-        // 2) 包内按关键词补捞（类名可能带 $ 或变体）
-        if (hit == 0) {
-            for (pkg in ENTRY_PKGS) {
-                val names = ClassFinder.classNamesInPackage(classLoader, pkg, includeInner = true, limit = 200)
-                    .filter { n -> ENTRY_KEYWORDS.any { n.contains(it) } }
-                for (n in names.take(10)) {
-                    val cls = ClassFinder.findClass(classLoader, n) ?: continue
-                    if (hookHideViewOrService(cls)) hit++
-                }
-                if (hit > 0) break
+
+        fun attach(m: java.lang.reflect.Member) {
+            runCatching {
+                XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val obj = param.thisObject ?: return
+                        if (obj.javaClass.name !in MALL_DRAINAGE_DIALOGS) return
+                        HookUtils.log("$TAG: 拦截商城引流弹窗 ${obj.javaClass.simpleName}")
+                        param.result = null
+                    }
+                })
+                hit++
             }
         }
-        return "商城入口:${hit} "
-    }
 
-    /** 视图就隐藏视图；服务类就把返回值清掉 */
-    private fun hookHideViewOrService(cls: Class<*>): Boolean {
-        if (View::class.java.isAssignableFrom(cls)) return hookHideView(cls)
-        var hooked = false
-        runCatching {
-            cls.declaredMethods
-                .filter { it.parameterTypes.isEmpty() && it.returnType != Void.TYPE }
-                .filter { it.name.contains("show", true) || it.name.contains("bubble", true) || it.name.contains("entry", true) }
-                .take(4)
-                .forEach { m ->
-                    XposedBridge.hookMethod(m, object : XC_MethodHook() {
-                        override fun afterHookedMethod(param: MethodHookParam) {
-                            runCatching { param.result = null }
-                        }
-                    })
-                    hooked = true
-                }
+        // 1) 框架层：Dialog.show() 拦所有 Dialog，回调里再按类名筛
+        runCatching { attach(android.app.Dialog::class.java.getDeclaredMethod("show")) }
+
+        // 2) 目标类自己声明的 show()（防子类重写绕过框架那一层）
+        for (name in MALL_DRAINAGE_DIALOGS) {
+            val cls = ClassFinder.findClass(classLoader, name) ?: continue
+            runCatching {
+                cls.declaredMethods.filter { it.name == "show" }.forEach { attach(it) }
+            }
         }
-        if (hooked) HookUtils.log("$TAG: 已拦截 ${cls.name}")
-        return hooked
+
+        return "引流弹窗:$hit "
     }
 }
