@@ -1,4 +1,4 @@
-package com.xposed.doupp.util
+﻿package com.xposed.doupp.util
 
 import android.os.Handler
 import android.os.Looper
@@ -182,27 +182,27 @@ object AdaptationManager {
         val feature = "Aweme类"
         val candidates = listOf(
             "com.ss.android.ugc.aweme.feed.model.Aweme",
-            "com.ss.ugc.aweme.Aweme",
             "com.ss.android.ugc.aweme.model.Aweme",
+            "com.ss.ugc.aweme.Aweme",
             "com.ss.android.ugc.aweme.feed.model.FeedModel",
             "com.ss.android.ugc.aweme.model.FeedItem"
         )
 
-        // 先用 ClassFinder 动态扫描
-        val found = ClassFinder.findByMethodSignature(
-            classLoader,
-            "com.ss.android.ugc.aweme",
-            listOf("getVideo:Video:", "getAwemeId:String:")
-        )
+        // 候选列表优先（40.7.0 上第一个类名仍然存在，没必要全量扫）
+        val direct = ClassFinder.findClass(classLoader, candidates)
 
-        val classNames = if (found.isNotEmpty()) {
-            found.map { it.name }
+        // 兜底：按方法名特征找（注意用类名过滤 + 懒加载，不再全量 Class.forName）
+        val scanned = if (direct == null) {
+            ClassFinder.findByMethodSignature(
+                classLoader, "com.ss.android.ugc.aweme",
+                listOf("getVideo:Video:", "getAwemeId:String:"),
+                nameHints = listOf("Aweme", "FeedModel", "FeedItem")
+            )
         } else {
-            // 回退到候选列表
-            val result = ClassFinder.findClass(classLoader, candidates)
-            if (result != null) listOf(result.name) else emptyList()
+            emptyList()
         }
 
+        val classNames = (listOfNotNull(direct?.name) + scanned.map { it.name }).distinct()
         adaptationResults["aweme"] = classNames
         return AdaptationResult(
             feature,
@@ -214,15 +214,21 @@ object AdaptationManager {
 
     /**
      * 适配 Cronet 类
+     *
+     * 40.7.0 实测：`org/chromium/net/` 0 命中，但 `com/ttnet/` 存在（14 个 dex），
+     * `CronetUrlRequest` 也在（classes42.dex）——抖音用的是 ttnet 分支的 Cronet，
+     * 所以候选表以 ttnet 为主，org.chromium 只作为旧版本兜底。
      */
     private fun adaptCronetClasses(classLoader: ClassLoader): AdaptationResult {
         val feature = "Cronet网络库"
         val candidates = listOf(
             "com.ttnet.org.chromium.net.impl.CronetUrlRequest\$Builder",
             "com.ttnet.org.chromium.net.UrlRequest\$Builder",
-            "org.chromium.net.UrlRequest\$Builder",
             "com.ttnet.org.chromium.net.impl.CronetUrlRequest",
-            "com.ttnet.org.chromium.net.UrlRequest"
+            "com.ttnet.org.chromium.net.UrlRequest",
+            // 旧版直连 Cronet
+            "org.chromium.net.UrlRequest\$Builder",
+            "org.chromium.net.UrlRequest"
         )
 
         val classNames = mutableListOf<String>()
@@ -230,13 +236,24 @@ object AdaptationManager {
             try {
                 Class.forName(name, false, classLoader)
                 classNames.add(name)
-            } catch (_: ClassNotFoundException) {}
+            } catch (_: ClassNotFoundException) { }
         }
 
-        // 动态扫描 ttnet 包
+        // 包级扫描 + 字符串特征
         if (classNames.isEmpty()) {
-            val found = ClassFinder.getClassesInPackage(classLoader, "com.ttnet.org.chromium.net")
-            classNames.addAll(found.take(5).map { it.name })
+            for (pkg in listOf("com.ttnet.org.chromium.net", "org.chromium.net")) {
+                classNames.addAll(
+                    ClassFinder.classNamesInPackage(classLoader, pkg, includeInner = false, limit = 500)
+                        .filter { it.contains("UrlRequest") || it.contains("CronetEngine") }
+                        .take(5)
+                )
+                if (classNames.isNotEmpty()) break
+            }
+        }
+        if (classNames.isEmpty()) {
+            classNames.addAll(
+                ClassFinder.findByResourceRefs(classLoader, listOf("CronetUrlRequest")).map { it.name }
+            )
         }
 
         adaptationResults["cronet"] = classNames
@@ -244,7 +261,7 @@ object AdaptationManager {
             feature,
             classNames,
             classNames.isNotEmpty(),
-            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到"
+            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个（ttnet 分支）" else "未找到"
         )
     }
 
@@ -285,20 +302,25 @@ object AdaptationManager {
     }
 
     /**
-     * 适配 ExoPlayer 类
+     * 适配播放器类
+     *
+     * 40.7.0 实测：`com/google/android/exoplayer2/` 与 `androidx/media3/` 都是 0 命中，
+     * 抖音 40.7.0 已经换成自研播放器。原来只探 ExoPlayer/Media3，在新版上永远「未找到」，
+     * 所以补一条自研播放器路径。
      */
     private fun adaptExoPlayerClasses(classLoader: ClassLoader): AdaptationResult {
-        val feature = "ExoPlayer播放器"
+        val feature = "播放器"
         val candidates = listOf(
-            "com.google.android.exoplayer2.Player\$EventListener",
-            "com.google.android.exoplayer2.ExoPlayer\$EventListener",
-            "com.google.android.exoplayer2.analytics.AnalyticsListener",
+            // ExoPlayer 老版
             "com.google.android.exoplayer2.ExoPlayer",
             "com.google.android.exoplayer2.Player",
-            // Media3 迁移后的类名
+            // Media3 迁移期
             "androidx.media3.exoplayer.ExoPlayer",
-            "androidx.media3.player.Player\$EventListener",
-            "androidx.media3.exoplayer.analytics.AnalyticsListener"
+            "androidx.media3.player.Player",
+            // 抖音自研播放器（40.x）
+            "com.ss.android.ugc.aweme.player.AwemePlayer",
+            "com.ss.android.ugc.aweme.player.PlayerManager",
+            "com.ss.android.ugc.aweme.player.selector.PlayerSelector"
         )
 
         val classNames = mutableListOf<String>()
@@ -306,16 +328,23 @@ object AdaptationManager {
             try {
                 Class.forName(name, false, classLoader)
                 classNames.add(name)
-            } catch (_: ClassNotFoundException) {}
+            } catch (_: ClassNotFoundException) { }
         }
 
-        // 动态扫描 exoplayer2 和 media3 包
+        // 包级扫描：三个位置都扫一遍
         if (classNames.isEmpty()) {
-            val exoFound = ClassFinder.getClassesInPackage(classLoader, "com.google.android.exoplayer2")
-            classNames.addAll(exoFound.take(3).map { it.name })
-
-            val media3Found = ClassFinder.getClassesInPackage(classLoader, "androidx.media3")
-            classNames.addAll(media3Found.take(3).map { it.name })
+            for (pkg in listOf(
+                "com.google.android.exoplayer2",
+                "androidx.media3",
+                "com.ss.android.ugc.aweme.player"
+            )) {
+                classNames.addAll(
+                    ClassFinder.classNamesInPackage(classLoader, pkg, includeInner = false, limit = 200)
+                        .filter { it.endsWith("ExoPlayer") || it.endsWith("Player") || it.endsWith("PlayerManager") }
+                        .take(3)
+                )
+                if (classNames.isNotEmpty()) break
+            }
         }
 
         adaptationResults["exoplayer"] = classNames
@@ -323,31 +352,30 @@ object AdaptationManager {
             feature,
             classNames,
             classNames.isNotEmpty(),
-            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到"
+            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个"
+            else "未发现 ExoPlayer/Media3（40.7.0 为自研播放器）"
         )
     }
 
     /**
      * 适配热更新框架类
+     *
+     * 40.7.0 实测：Tinker 0 命中、`com/taobao/sophix/` 0 命中、`com/ss/android/ugc/aweme/mira` 0 命中；
+     * 实际在用的是 `com/ss/android/ugc/aweme/ies`（classes20.dex），即字节 ies patch 路线。
+     * 所以候选表把 ies 提到最前面，Tinker/Sophix 保留作旧版本兜底。
      */
     private fun adaptHotUpdateClasses(classLoader: ClassLoader): AdaptationResult {
         val feature = "热更新框架"
         val candidates = listOf(
+            "com.ss.android.ugc.aweme.ies.patch.PatchManager",
+            "com.ss.android.ugc.aweme.ies.patch.Patch",
             "com.bytedance.ies.patch.PatchManager",
             "com.bytedance.ugc.patch.PatchManager",
             "com.bytedance.boost.patch.PatchLoader",
-            "com.bytedance.boost.multidex.BoostMultiDex",
             "com.bytedance.mira.MiraManager",
             "com.bytedance.hotfix.HotfixManager",
-            "com.bytedance.patch.PatchLoader",
             "com.tencent.tinker.lib.tinker.Tinker",
-            "com.tencent.tinker.lib.tinker.TinkerInstaller",
-            "com.taobao.sophix.SophixManager",
-            "com.meituan.robust.PatchExecutor",
-            "com.qihoo360.replugin.RePlugin",
-            "com.didi.virtualapk.PluginManager",
-            "com.android.dex.Dex",
-            "dalvik.system.DexClassLoader"
+            "com.taobao.sophix.SophixManager"
         )
 
         val classNames = mutableListOf<String>()
@@ -355,21 +383,24 @@ object AdaptationManager {
             try {
                 Class.forName(name, false, classLoader)
                 classNames.add(name)
-            } catch (_: ClassNotFoundException) {}
+            } catch (_: ClassNotFoundException) { }
         }
 
-        // 动态扫描字节跳动热更新相关包
-        val bytedancePatchPackages = listOf(
-            "com.bytedance.ies.patch",
-            "com.bytedance.ugc.patch",
-            "com.bytedance.boost.patch",
-            "com.bytedance.mira",
-            "com.bytedance.hotfix"
-        )
-        for (pkg in bytedancePatchPackages) {
-            if (classNames.none { it.startsWith(pkg) }) {
-                val found = ClassFinder.getClassesInPackage(classLoader, pkg)
-                classNames.addAll(found.map { it.name })
+        // 包级扫描：字节 ies / patch 路线
+        if (classNames.isEmpty()) {
+            for (pkg in listOf(
+                "com.ss.android.ugc.aweme.ies",
+                "com.bytedance.ies.patch",
+                "com.bytedance.ugc.patch",
+                "com.bytedance.boost.patch",
+                "com.bytedance.mira"
+            )) {
+                classNames.addAll(
+                    ClassFinder.classNamesInPackage(classLoader, pkg, includeInner = false, limit = 300)
+                        .filter { it.contains("Patch", true) || it.contains("Hotfix", true) || it.contains("Mira", true) }
+                        .take(5)
+                )
+                if (classNames.isNotEmpty()) break
             }
         }
 
@@ -378,12 +409,17 @@ object AdaptationManager {
             feature,
             classNames,
             classNames.isNotEmpty(),
-            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到"
+            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个（ies patch 路线）"
+            else "未发现 Tinker/Sophix（40.7.0 走 ies patch）"
         )
     }
 
     /**
      * 适配广告SDK类
+     *
+     * 40.7.0 实测：只有穿山甲 `com/bytedance/sdk/openadsdk` 在（8 个 dex），
+     * 广点通 / 快手 / 百度 三家 0 命中。列表保留（换版本还会回来），但不再用 getClassesInPackage
+     * 全量加载，改成按类名过滤。
      */
     private fun adaptAdSdkClasses(classLoader: ClassLoader): AdaptationResult {
         val feature = "广告SDK"
@@ -397,62 +433,65 @@ object AdaptationManager {
             "com.baidu.mobads"
         )
 
-        val classNames = mutableListOf<String>()
+        val found = LinkedHashMap<String, MutableList<String>>()
         for (pkg in sdkPackages) {
-            val found = ClassFinder.getClassesInPackage(classLoader, pkg)
-            classNames.addAll(found.take(3).map { it.name })
+            val names = ClassFinder.classNamesInPackage(classLoader, pkg, includeInner = false, limit = 100)
+            if (names.isNotEmpty()) found[pkg] = names.take(3).toMutableList()
         }
-
+        val classNames = found.values.flatten()
         adaptationResults["adsdk"] = classNames
-        return AdaptationResult(
-            feature,
-            classNames,
-            classNames.isNotEmpty(),
-            if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到"
-        )
+        val detail = if (found.isEmpty()) "未发现广告 SDK" else found.keys.joinToString(", ")
+        return AdaptationResult(feature, classNames, classNames.isNotEmpty(), detail)
     }
 
     /**
      * 适配 AutoPlayController（官方自动播放控制器）
      *
-     * 搜索特征（参考 FreedomPlus）:
-     * - 类中包含 "auto_play_key" 字符串常量
-     * - 有返回 QLiveData 类型的方法
-     * - 有 "normal"、"swipe" 等字符串
+     * 40.7.0 实测：`auto_play_key` 还在（classes43.dex），但它所在的类搬到了 plato 架构的新包：
+     *   com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay.*
+     *   com.ss.android.ugc.aweme.feed.extend.autoplay.AutoPlayExtendEvent
+     * AutoPlay 前缀的语义类名整体保留（AutoPlayConfig / AutoPlayTrigger / AutoPlayViewModel），
+     * 所以优先按类名锚定，再用字符串特征补齐。
      */
     private fun adaptAutoPlayController(classLoader: ClassLoader): AdaptationResult {
         val feature = "AutoPlayController"
         val classNames = mutableListOf<String>()
 
-        // 1. 通过字符串特征搜索
+        // 1. 语义类名锚点（最稳：这些类名没有被混淆）
+        val anchors = listOf(
+            // 40.7.0 实测：AutoPlayController 在 follow_shoot_fra.play_control 下，不在 autoplay 包
+            "com.ss.android.ugc.aweme.follow_shoot_fra.play_control.AutoPlayController",
+            "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay.AutoPlayComponent",
+            "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay.AutoPlayViewModel",
+            "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay.AutoPlayTrigger",
+            "com.ss.android.ugc.aweme.feed.AutoPlayViewModel",
+            "com.ss.android.ugc.aweme.feed.extend.autoplay.AutoPlayExtendEvent",
+            "com.bytedance.kmp.autoplay.FeedAutoPlayBridgeComponent"
+        )
+        ClassFinder.findClass(classLoader, anchors)?.let { classNames.add(it.name) }
+
+        // 2. 新旧包路径下按名字找
         val searchPackages = listOf(
+            "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay",
+            "com.ss.android.ugc.aweme.feed.extend.autoplay",
             "com.ss.android.ugc.aweme.feed",
             "com.ss.android.ugc.aweme.auto",
-            "com.ss.android.ugc.aweme.player",
-            "com.ss.android.ugc.aweme"
+            "com.ss.android.ugc.aweme.player"
         )
-
         for (pkg in searchPackages) {
-            val found = ClassFinder.findByStringConstants(
-                classLoader, pkg,
-                listOf("auto_play_key")
+            classNames.addAll(
+                ClassFinder.classNamesInPackage(classLoader, pkg, includeInner = false, limit = 3000)
+                    .filter { it.contains("AutoPlay", ignoreCase = true) }
             )
-            classNames.addAll(found.map { it.name })
         }
 
-        // 2. 如果字符串搜索没找到，用字段/方法特征搜索
-        if (classNames.isEmpty()) {
-            for (pkg in searchPackages) {
-                // 找有 QLiveData/LiveData 类型字段的类
-                val fieldFound = ClassFinder.findByFieldSignature(
-                    classLoader, pkg,
-                    listOf("QLiveData:LiveData", "liveData:LiveData")
-                )
-                classNames.addAll(fieldFound.map { it.name })
-            }
+        // 3. 字符串特征补齐（这次是真读 dex 字符串池 + const-string 指令）
+        for (pkg in searchPackages) {
+            classNames.addAll(
+                ClassFinder.findByStringConstants(classLoader, pkg, listOf("auto_play_key")).map { it.name }
+            )
         }
 
-        // 3. 去重
         val uniqueNames = classNames.distinct()
         adaptationResults["autoplay"] = uniqueNames
         return AdaptationResult(
@@ -531,6 +570,8 @@ object AdaptationManager {
         try {
             val json = JSONObject()
             json.put("version", douyinVersion)
+            // 同版本号重打包也会改适配结果，所以带上 APK 指纹
+            json.put("apkStamp", apkStamp())
             json.put("timestamp", System.currentTimeMillis())
 
             val resultsJson = JSONObject()
@@ -569,6 +610,12 @@ object AdaptationManager {
                 return false
             }
 
+            val cachedStamp = json.optString("apkStamp", "")
+            if (cachedStamp.isNotEmpty() && cachedStamp != apkStamp()) {
+                HookUtils.log("$TAG: 缓存 APK 指纹不匹配，重新扫描")
+                return false
+            }
+
             val resultsJson = json.optJSONObject("results") ?: return false
             for (feature in resultsJson.keys()) {
                 val arr = resultsJson.optJSONArray(feature) ?: continue
@@ -588,74 +635,86 @@ object AdaptationManager {
     }
 
     /**
-     * 扫描 yyds 混淆包 — 新版抖音 (39.70+) R8 全量混淆
+     * 扫描混淆包。
      *
-     * 新版抖音使用 R8 将所有应用类混淆到 yyds 包下，
-     * 关键类被重命名为 Cxxxx / AbstractCxxxx 等。
-     * 此方法扫描 yyds 包并缓存关键类名供各 Hook 使用。
+     * README 里写的「新版抖音所有应用类都在 yyds 包下」这条在 40.7.0 上已经不成立：
+     * 55 个 dex 里 `Lyyds/` 零命中，应用类被打散进 X / Y / O / m / ms / j6 这类单双字母根
+     * （X、Y 两个根覆盖全部 55 个 dex）。所以改成动态发现混淆包根，同时保留 yyds 兼容旧版本。
      */
     private fun scanYydsPackage(classLoader: ClassLoader): AdaptationResult {
-        val feature = "yyds混淆包"
+        val feature = "混淆包扫描"
         val classNames = mutableListOf<String>()
 
         try {
-            // 1. 获取 yyds 包下的所有类
-            val yydsClasses = ClassFinder.getClassesInPackage(classLoader, "yyds")
-            HookUtils.log("$TAG: yyds 包下共 ${yydsClasses.size} 个类")
+            val roots = ClassFinder.obfuscatedRoots(classLoader)
+            HookUtils.log("$TAG: 混淆包根 = $roots")
 
-            // 2. 按类别缓存关键类
-            // 2a. 分享面板相关: 实现了 InterfaceC0679 且操作 share_bottom_sheet 的类
-            val sharePanelClasses = yydsClasses.filter { cls ->
-                try {
-                    // 检查是否有 share_bottom_sheet 相关操作
-                    cls.declaredMethods.any { m ->
-                        val params = m.parameterTypes.map { it.name }
-                        params.any { it.contains("share") || it.contains("ViewGroup") }
-                    }
-                } catch (_: Throwable) { false }
-            }
-            if (sharePanelClasses.isNotEmpty()) {
-                adaptationResults["share_panel"] = sharePanelClasses.map { it.name }
-                classNames.addAll(sharePanelClasses.map { it.name })
-                HookUtils.log("$TAG: yyds分享面板候选: ${sharePanelClasses.map { it.name }}")
+            // 1. 自动播放相关类（新版落在 feed.plato.business.contentconsumption.autoplay 下）
+            val autoPlayAnchors = ClassFinder.classNamesInPackage(
+                classLoader,
+                "com.ss.android.ugc.aweme.feed.plato.business.contentconsumption.autoplay",
+                includeInner = false, limit = 200
+            ) + ClassFinder.classNamesInPackage(
+                classLoader, "com.ss.android.ugc.aweme.feed.extend.autoplay",
+                includeInner = false, limit = 100
+            ) + ClassFinder.classNamesInPackage(
+                classLoader, "com.ss.android.ugc.aweme.feed",
+                includeInner = false, limit = 4000
+            ).filter { it.endsWith(".AutoPlayViewModel") }
+            if (autoPlayAnchors.isNotEmpty()) {
+                adaptationResults["autoplay_yyds"] = autoPlayAnchors.distinct()
+                classNames.addAll(autoPlayAnchors)
             }
 
-            // 2b. 寻找 AutoPlayConfig / AutoPlay 相关类
-            val autoPlayClasses = ClassFinder.findByStringConstants(
-                classLoader, "yyds",
-                listOf("auto_play_key", "AutoPlayConfig", "auto_play")
+            // 2. 分享面板相关类（40.7.0 的锚点：detail_page_panel.quick.presenter.bottom + share.viewmodel）
+            val shareAnchors = ArrayList<String>()
+            shareAnchors.addAll(
+                ClassFinder.classNamesInPackage(
+                    classLoader, "com.ss.android.ugc.aweme.feed.detail_page_panel.quick.presenter.bottom",
+                    includeInner = false, limit = 300
+                ).filter { it.contains("Share", ignoreCase = true) }
             )
-            if (autoPlayClasses.isNotEmpty()) {
-                adaptationResults["autoplay_yyds"] = autoPlayClasses.map { it.name }
-                classNames.addAll(autoPlayClasses.map { it.name })
+            shareAnchors.addAll(
+                ClassFinder.classNamesInPackage(
+                    classLoader, "com.ss.android.ugc.aweme.share.viewmodel",
+                    includeInner = false, limit = 300
+                )
+            )
+            if (shareAnchors.isNotEmpty()) {
+                val uniq = shareAnchors.distinct()
+                adaptationResults["share_panel"] = uniq
+                classNames.addAll(uniq)
+                HookUtils.log("$TAG: 分享面板候选 = $uniq")
             }
 
-            // 2d. 寻找 Feed/ViewPager 相关类
-            val feedViewClasses = yydsClasses.filter { cls ->
-                try {
-                    val name = cls.name
-                    name.contains("ViewPager") || name.contains("Flippable") ||
-                    cls.declaredMethods.any { m ->
-                        m.name.contains("page") || m.name.contains("scroll") ||
-                        m.name.contains("feed") || m.name.contains("aweme")
-                    }
-                } catch (_: Throwable) { false }
+            // 3. feed / ViewPager 相关类（在混淆根下按名字找）
+            val pagerAnchors = ArrayList<String>()
+            for (r in roots.take(6)) {
+                pagerAnchors.addAll(
+                    ClassFinder.classNamesInPackage(classLoader, r, includeInner = false, limit = 40_000)
+                        .filter { it.contains("ViewPager") || it.contains("Flippable") }
+                        .take(40)
+                )
+                if (pagerAnchors.size >= 80) break
             }
-            if (feedViewClasses.isNotEmpty()) {
-                adaptationResults["feed_view_yyds"] = feedViewClasses.map { it.name }
-                classNames.addAll(feedViewClasses.map { it.name })
+            if (pagerAnchors.isNotEmpty()) {
+                adaptationResults["feed_view_yyds"] = pagerAnchors.distinct()
+                classNames.addAll(pagerAnchors)
             }
 
+            // 4. 旧版 yyds 仍然保留一份，兼容还在读这个 key 的代码
+            val legacyYyds = ClassFinder.classNamesInPackage(classLoader, "yyds", limit = 2000)
+            if (legacyYyds.isNotEmpty()) adaptationResults["yyds"] = legacyYyds
         } catch (t: Throwable) {
-            HookUtils.log("$TAG: yyds扫描异常: ${t.message}")
+            HookUtils.log("$TAG: 混淆包扫描异常: ${t.message}")
         }
 
-        adaptationResults["yyds"] = classNames
+        adaptationResults["obfuscated_roots"] = classNames
         return AdaptationResult(
             feature,
             classNames,
             classNames.isNotEmpty(),
-            if (classNames.isNotEmpty()) "yyds包扫描完成，找到 ${classNames.size} 个关键类" else "yyds包不存在"
+            if (classNames.isNotEmpty()) "命中 ${classNames.size} 个关键类" else "未发现混淆包"
         )
     }
 
@@ -671,39 +730,56 @@ object AdaptationManager {
         val classNames = mutableListOf<String>()
 
         try {
-            // 1. 通过字符串搜索 share_bottom_sheet
-            val byString = ClassFinder.findByStringConstants(
-                classLoader, "yyds",
-                listOf("share_bottom_sheet")
-            )
-            classNames.addAll(byString.map { it.name })
-            HookUtils.log("$TAG: 分享面板(share_bottom_sheet)类: ${byString.map { it.name }}")
+            // 1. 语义类名锚点（40.7.0 实测存在）
+            ClassFinder.findClass(
+                classLoader,
+                listOf(
+                    "com.ss.android.ugc.aweme.feed.detail_page_panel.quick.presenter.bottom.DPPBottomSharePresenter",
+                    "com.ss.android.ugc.aweme.share.viewmodel.FeedPanelStateViewModel",
+                    "com.ss.android.ugc.aweme.feedliveshare.ui.FeedShareFragmentPanel"
+                )
+            )?.let { classNames.add(it.name) }
 
-            // 2. 搜索包含 share_hsv / share_view ID 的类
-            val byId = ClassFinder.findByStringConstants(
-                classLoader, "yyds",
-                listOf("share_hsv", "share_view", "shareAddTool")
+            // 2. 字符串特征
+            //    40.7.0 上 share_bottom_sheet / share_hsv 已经没了（0 命中），
+            //    换成仍在的 share_panel / share_bottom / share_bar
+            val keywords = listOf("share_panel", "share_bottom", "share_bar", "shareAddTool")
+            val searchPackages = listOf(
+                "com.ss.android.ugc.aweme.share",
+                "com.ss.android.ugc.aweme.feed.detail_page_panel.quick",
+                "com.ss.android.ugc.aweme.feedliveshare",
+                "com.ss.android.ugc.aweme"
             )
-            for (cls in byId) {
-                if (cls.name !in classNames) classNames.add(cls.name)
+            for (pkg in searchPackages) {
+                for (kw in keywords) {
+                    classNames.addAll(
+                        ClassFinder.findByStringConstants(classLoader, pkg, listOf(kw)).map { it.name }
+                    )
+                }
             }
-            HookUtils.log("$TAG: 分享面板(share_hsv)类: ${byId.map { it.name }}")
-
+            // 3. 旧版锚点保留（旧版本抖音还能命中）
+            for (kw in listOf("share_bottom_sheet", "share_hsv")) {
+                classNames.addAll(
+                    ClassFinder.findByStringConstants(classLoader, "com.ss.android.ugc.aweme", listOf(kw))
+                        .map { it.name }
+                )
+            }
+            HookUtils.log("$TAG: 分享面板候选 = ${classNames.distinct()}")
         } catch (t: Throwable) {
             HookUtils.log("$TAG: SharePanel适配异常: ${t.message}")
         }
 
-        // 保存到缓存
-        if (classNames.isNotEmpty()) {
+        val uniq = classNames.distinct()
+        if (uniq.isNotEmpty()) {
             val existing = adaptationResults["share_panel"] ?: emptyList()
-            adaptationResults["share_panel"] = (existing + classNames).distinct()
+            adaptationResults["share_panel"] = (existing + uniq).distinct()
         }
 
         return AdaptationResult(
             feature,
-            classNames,
-            classNames.isNotEmpty(),
-            if (classNames.isNotEmpty()) "分享面板适配完成" else "未检测到新版分享面板"
+            uniq,
+            uniq.isNotEmpty(),
+            if (uniq.isNotEmpty()) "适配完成 ${uniq.size} 个" else "未检测到分享面板"
         )
     }
 
@@ -823,6 +899,15 @@ object AdaptationManager {
         return AdaptationResult(feature, classNames, classNames.isNotEmpty(),
             if (classNames.isNotEmpty()) "找到 ${classNames.size} 个" else "未找到")
     }
+
+    /**
+     * 宿主 APK 指纹 = versionCode + lastModified + 长度。
+     * 抖音同一个版本号重打包很常见，只比版本号会吃到过期缓存。
+     */
+    private fun apkStamp(): String = runCatching {
+        val f = File(ContextHelper.getContext()?.applicationInfo?.sourceDir ?: return "")
+        "${f.length()}:${f.lastModified()}"
+    }.getOrDefault("")
 
     /**
      * 显示 Toast

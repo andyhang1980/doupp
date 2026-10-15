@@ -1,478 +1,368 @@
-package com.xposed.doupp.util
+﻿package com.xposed.doupp.util
 
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 类查找工具
+ * 类查找工具。
  *
- * 适配最新版抖音:
- * - 抖音每次更新后类名都会混淆，但类的结构特征(字段类型、方法签名)相对稳定
- * - 加固后 dex 延迟加载，需要支持运行时动态查找
- * - 增强 DexFile 遍历：处理多 ClassLoader、 delegate ClassLoader
- * - 新增模糊匹配模式（字段名包含关键词即可匹配）
+ * 这一版修掉了两个把适配直接废掉的问题：
  *
- * LSPosed 2.x 兼容:
- * - 使用标准 Java 反射 API，不依赖 XposedHelpers 内部实现
- * - DexFile 遍历通过 dalvik.system.DexFile 反射完成
+ * 1. 原来用 `scannedClassLoaders` 标记「这个 ClassLoader 扫过了」，
+ *    结果第一次扫完某个包之后，**所有后续包扫描都直接返回空**。
+ *    现在改成按 ClassLoader 缓存完整的类名列表，任意包都能反复查。
+ *
+ * 2. 原来对整个包做 `Class.forName`，`com.ss.android.ugc.aweme` 是十万级类，
+ *    会把宿主内存和启动时间一起拖垮。
+ *    现在默认只按**类名**过滤，需要时才懒加载 Class，并且有上限。
+ *
+ * 字符串特征搜索改走 [DexStringIndex]（真读 dex 字符串池和 const-string 指令），
+ * 之前那套只读注解和 String 静态字段，方法体里的字符串一个也搜不到。
  */
 object ClassFinder {
 
-    /** 类缓存: key=类名, value=Class对象 */
-    private val classCache = ConcurrentHashMap<String, Class<*>>()
+    /** 单次 Class.forName 加载上限，防止把宿主拖爆 */
+    @Volatile
+    var classLoadLimit: Int = 500
 
-    /** 已遍历过的 ClassLoader 集合 */
-    private val scannedClassLoaders = mutableSetOf<ClassLoader>()
+    /** 索引的类名总数超过这个量就说明宿主超大，日志里提示一下 */
+    @Volatile
+    var indexWarnSize: Int = 300_000
+
+    private val resolved = ConcurrentHashMap<String, Class<*>>()
+
+    /** ClassLoader -> 全部类名（懒建，每个 CL 只建一次） */
+    private val nameIndex = ConcurrentHashMap<ClassLoader, List<String>>()
+
+    /** ClassLoader -> 混淆包根（懒发现） */
+    private val rootsCache = ConcurrentHashMap<ClassLoader, List<String>>()
+
+    // ------------------------------------------------------------------
+    // 类名索引
+    // ------------------------------------------------------------------
 
     /**
-     * 通过候选类名列表查找类
-     * 尝试每个候选名，返回第一个找到的
-     *
-     * @param classLoader 类加载器
-     * @param candidates 候选类名列表
-     * @return 找到的 Class，全部失败返回 null
+     * 拿到宿主 ClassLoader 里的全部类名（建索引，只遍历 dex 条目，不加载类）。
      */
-    fun findClass(classLoader: ClassLoader, candidates: List<String>): Class<*>? {
-        for (name in candidates) {
-            val cached = classCache[name]
-            if (cached != null) return cached
+    fun classNames(classLoader: ClassLoader): List<String> {
+        nameIndex[classLoader]?.let { return it }
+        val names = ArrayList<String>(200_000)
+        collectNames(classLoader, names, HashSet())
+        HookUtils.log("ClassFinder: 类名索引 ${names.size} 个")
+        if (names.size > indexWarnSize) {
+            HookUtils.log("ClassFinder: 宿主类数量偏大 (${names.size})，已限制单次加载 $classLoadLimit")
+        }
+        nameIndex[classLoader] = names
+        return names
+    }
 
-            try {
-                val clazz = Class.forName(name, false, classLoader)
-                classCache[name] = clazz
-                HookUtils.log("ClassFinder: 找到类 $name")
-                return clazz
-            } catch (_: ClassNotFoundException) {
-                // 继续尝试下一个
-            } catch (_: Throwable) {
-                // 部分加固场景下可能抛出其他异常
+    private fun collectNames(classLoader: ClassLoader, out: MutableList<String>, seen: MutableSet<ClassLoader>) {
+        if (!seen.add(classLoader)) return
+        try {
+            val pathListField = findFieldInHierarchy(classLoader.javaClass, "pathList") ?: return
+            pathListField.isAccessible = true
+            val pathList = pathListField.get(classLoader) ?: return
+            val dexElementsField = findFieldInHierarchy(pathList.javaClass, "dexElements") ?: return
+            dexElementsField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val dexElements = dexElementsField.get(pathList) as? Array<*> ?: return
+            for (el in dexElements) {
+                if (el == null) continue
+                try {
+                    val dexFile = findFieldInHierarchy(el.javaClass, "dexFile")?.apply { isAccessible = true }?.get(el)
+                        ?: continue
+                    val entries = dexFile.javaClass.getMethod("entries").invoke(dexFile)
+                        as? java.util.Enumeration<String> ?: continue
+                    while (entries.hasMoreElements()) out.add(entries.nextElement())
+                } catch (_: Throwable) { }
             }
+        } catch (t: Throwable) {
+            HookUtils.log("ClassFinder: dex 条目遍历失败 ${t.message}")
+        }
+        // delegate / parent 兜底（部分定制 ClassLoader）
+        try {
+            val f = findFieldInHierarchy(classLoader.javaClass, "delegate")
+            if (f != null) {
+                f.isAccessible = true
+                val d = f.get(classLoader) as? ClassLoader
+                if (d != null && d !== classLoader) collectNames(d, out, seen)
+            }
+        } catch (_: Throwable) { }
+        try {
+            val p = classLoader.parent
+            if (p != null && p !== classLoader && p !== ClassLoader.getSystemClassLoader()) {
+                collectNames(p, out, seen)
+            }
+        } catch (_: Throwable) { }
+    }
+
+    private fun findFieldInHierarchy(start: Class<*>, name: String): java.lang.reflect.Field? {
+        var c: Class<*>? = start
+        while (c != null) {
+            try { return c.getDeclaredField(name) } catch (_: NoSuchFieldException) { c = c.superclass }
         }
         return null
     }
 
-    /**
-     * 通过单个类名查找类
-     */
-    fun findClass(classLoader: ClassLoader, className: String): Class<*>? {
-        return findClass(classLoader, listOf(className))
-    }
+    // ------------------------------------------------------------------
+    // 混淆包根发现
+    // ------------------------------------------------------------------
 
     /**
-     * 通过字段特征查找类
+     * 发现被 R8 混淆出来的包根。
      *
-     * @param classLoader 类加载器
-     * @param packageName 包名前缀
-     * @param fieldSignatures 字段特征列表 (格式: "fieldName:fieldType")
-     * @return 匹配的 Class 列表
+     * 40.7.0 实测：抖音应用类并不在 `yyds` 包下（该包 0 命中），
+     * 而是被打散进 X / Y / O / m / ms / j6 ... 这类单双字母根。
+     * 所以这里按「一级包名长度 <= 2 且不是常见库前缀」来识别，
+     * 同时保留 yyds 以兼容旧版本。
      */
-    fun findByFieldSignature(
+    fun obfuscatedRoots(classLoader: ClassLoader): List<String> {
+        rootsCache[classLoader]?.let { return it }
+        val knownLibRoots = setOf(
+            "com", "org", "io", "java", "kotlin", "kotlinx", "android", "androidx", "dalvik",
+            "javax", "okhttp3", "okio", "retrofit2", "bolts", "bytedance", "me", "cn", "secondary"
+        )
+        val counts = HashMap<String, Int>()
+        for (n in classNames(classLoader)) {
+            if (n.startsWith("yyds.")) { counts["yyds"] = (counts["yyds"] ?: 0) + 1; continue }
+            val i = n.indexOf('.')
+            if (i <= 0) continue
+            val top = n.substring(0, i)
+            if (top in knownLibRoots) continue
+            if (top.length <= 2) counts[top] = (counts[top] ?: 0) + 1
+        }
+        val roots = counts.entries.sortedByDescending { it.value }.map { it.key }
+        rootsCache[classLoader] = roots
+        HookUtils.log("ClassFinder: 混淆包根 = $roots")
+        return roots
+    }
+
+    // ------------------------------------------------------------------
+    // 按包查类
+    // ------------------------------------------------------------------
+
+    /** 只返回类名，不加载类 */
+    fun classNamesInPackage(
         classLoader: ClassLoader,
         packageName: String,
-        fieldSignatures: List<String>
-    ): List<Class<*>> {
-        val results = mutableListOf<Class<*>>()
-
-        try {
-            val parsedSignatures = fieldSignatures.map { sig ->
-                val parts = sig.split(":")
-                parts.getOrElse(0) { "" } to parts.getOrElse(1) { "" }
-            }
-
-            val classes = getClassesInPackage(classLoader, packageName)
-
-            for (clazz in classes) {
-                try {
-                    val fields = clazz.declaredFields
-                    var matchCount = 0
-
-                    for ((fieldName, fieldType) in parsedSignatures) {
-                        val hasMatch = fields.any { field ->
-                            // 精确匹配 或 模糊匹配（字段名包含关键词）
-                            (field.name == fieldName ||
-                             field.name.lowercase().contains(fieldName.lowercase())) &&
-                            (fieldType.isEmpty() || field.type.name.contains(fieldType))
-                        }
-                        if (hasMatch) matchCount++
-                    }
-
-                    if (matchCount == parsedSignatures.size) {
-                        results.add(clazz)
-                    }
-                } catch (_: Throwable) { }
-            }
-        } catch (t: Throwable) {
-            HookUtils.log("ClassFinder: 字段特征查找失败: ${t.message}")
+        includeInner: Boolean = false,
+        limit: Int = 4000
+    ): List<String> {
+        val prefix = if (packageName.endsWith(".")) packageName else "$packageName."
+        val out = ArrayList<String>(256)
+        for (n in classNames(classLoader)) {
+            if (!n.startsWith(prefix)) continue
+            if (!includeInner && n.contains('$')) continue
+            out.add(n)
+            if (out.size >= limit) break
         }
-
-        return results
+        return out
     }
 
     /**
-     * 通过方法签名特征查找类
-     *
-     * @param classLoader 类加载器
-     * @param packageName 包名前缀
-     * @param methodSignatures 方法特征列表 (格式: "methodName:returnType:paramType1,paramType2")
-     * @return 匹配的 Class 列表
-     */
-    fun findByMethodSignature(
-        classLoader: ClassLoader,
-        packageName: String,
-        methodSignatures: List<String>
-    ): List<Class<*>> {
-        val results = mutableListOf<Class<*>>()
-
-        try {
-            val parsedSignatures = methodSignatures.map { sig ->
-                val parts = sig.split(":")
-                val methodName = parts.getOrElse(0) { "" }
-                val returnType = parts.getOrElse(1) { "" }
-                val paramTypes = parts.getOrElse(2) { "" }.split(",").filter { it.isNotEmpty() }
-                Triple(methodName, returnType, paramTypes)
-            }
-
-            val classes = getClassesInPackage(classLoader, packageName)
-
-            for (clazz in classes) {
-                try {
-                    var matchCount = 0
-
-                    for ((methodName, returnType, paramTypes) in parsedSignatures) {
-                        val hasMatch = clazz.declaredMethods.any { method ->
-                            // 精确匹配 或 模糊匹配（方法名包含关键词）
-                            (method.name == methodName ||
-                             method.name.lowercase().contains(methodName.lowercase())) &&
-                            (returnType.isEmpty() ||
-                             method.returnType.name.contains(returnType) ||
-                             method.returnType.simpleName.contains(returnType)) &&
-                            method.parameterTypes.size == paramTypes.size
-                        }
-                        if (hasMatch) matchCount++
-                    }
-
-                    if (matchCount == parsedSignatures.size) {
-                        results.add(clazz)
-                    }
-                } catch (_: Throwable) { }
-            }
-        } catch (t: Throwable) {
-            HookUtils.log("ClassFinder: 方法签名查找失败: ${t.message}")
-        }
-
-        return results
-    }
-
-    /**
-     * 获取包下的所有类
-     *
-     * 适配新版抖音:
-     * - 支持 BaseDexClassLoader 和其子类（含加固后的自定义 ClassLoader）
-     * - 递归遍历 delegate ClassLoader
-     * - 处理 multiDex 场景
-     *
-     * LSPosed 2.x 兼容:
-     * - 使用 dalvik.system.DexFile 反射遍历
-     * - pathList -> dexElements -> dexFile -> entries
+     * 兼容旧接口：返回 Class 列表。
+     * 现在按类名过滤后**懒加载**，并受 [classLoadLimit] 限制。
      */
     fun getClassesInPackage(
         classLoader: ClassLoader,
         packageName: String,
         includeInner: Boolean = false
     ): List<Class<*>> {
-        val classes = mutableListOf<Class<*>>()
-
-        try {
-            collectClassesFromClassLoader(classLoader, packageName, classes, includeInner)
-        } catch (t: Throwable) {
-            HookUtils.log("ClassFinder: DexFile 遍历失败: ${t.message}")
-            // 备用方案: 尝试常见类名
-            val commonClasses = listOf(
-                "${packageName}.Aweme",
-                "${packageName}.Video",
-                "${packageName}.Image",
-                "${packageName}.Comment",
-                "${packageName}.User",
-                "${packageName}.feed.model.Aweme",
-                "${packageName}.feed.model.Video",
-                "${packageName}.feed.model.ImageModel"
-            )
-            for (name in commonClasses) {
-                try {
-                    classes.add(Class.forName(name, false, classLoader))
-                } catch (_: ClassNotFoundException) { }
-            }
+        val out = ArrayList<Class<*>>(64)
+        for (n in classNamesInPackage(classLoader, packageName, includeInner, classLoadLimit)) {
+            loadClass(n, classLoader)?.let { out.add(it) }
         }
-
-        return classes
+        return out
     }
 
-    /**
-     * 递归从 ClassLoader 中收集类
-     * 处理加固后可能存在的 delegate ClassLoader
-     */
-    private fun collectClassesFromClassLoader(
+    private fun loadClass(name: String, classLoader: ClassLoader): Class<*>? {
+        resolved[name]?.let { return it }
+        return try {
+            val c = Class.forName(name, false, classLoader)
+            resolved[name] = c
+            c
+        } catch (_: Throwable) { null }
+    }
+
+    /** 按候选名列表找类 */
+    fun findClass(classLoader: ClassLoader, candidates: List<String>): Class<*>? {
+        for (name in candidates) {
+            loadClass(name, classLoader)?.let { return it }
+        }
+        return null
+    }
+
+    fun findClass(classLoader: ClassLoader, className: String): Class<*>? =
+        findClass(classLoader, listOf(className))
+
+    // ------------------------------------------------------------------
+    // 特征查找
+    // ------------------------------------------------------------------
+
+    /** 按方法签名特征找类（在候选类名上过滤，不做全量 Class.forName） */
+    fun findByMethodSignature(
         classLoader: ClassLoader,
         packageName: String,
-        classes: MutableList<Class<*>>,
-        includeInner: Boolean = false
-    ) {
-        if (classLoader in scannedClassLoaders) return
-        scannedClassLoaders.add(classLoader)
-
-        try {
-            // 通过 BaseDexClassLoader.pathList.dexElements 遍历
-            var pathListField: java.lang.reflect.Field? = null
-            var clazz: Class<*>? = classLoader.javaClass
-
-            // 递归查找 pathList 字段（可能在父类中）
-            while (clazz != null && pathListField == null) {
-                try {
-                    pathListField = clazz.getDeclaredField("pathList")
-                } catch (_: NoSuchFieldException) {
-                    clazz = clazz.superclass
-                }
-            }
-
-            if (pathListField == null) {
-                HookUtils.log("ClassFinder: 未找到 pathList 字段 on ${classLoader.javaClass.name}")
-                return
-            }
-
-            pathListField.isAccessible = true
-            val pathList = pathListField.get(classLoader) ?: return
-
-            val dexElementsField = pathList.javaClass.getDeclaredField("dexElements")
-            dexElementsField.isAccessible = true
-            val dexElements = dexElementsField.get(pathList) as? Array<*> ?: return
-
-            HookUtils.log("ClassFinder: 遍历 ${dexElements.size} 个 dex 元素")
-
-            for (dexElement in dexElements) {
-                if (dexElement == null) continue
-
-                val dexFileField = try {
-                    dexElement.javaClass.getDeclaredField("dexFile")
-                } catch (_: NoSuchFieldException) { continue }
-
-                dexFileField.isAccessible = true
-                val dexFile = dexFileField.get(dexElement) ?: continue
-
-                // DexFile.entries() 返回 Enumeration<String>
-                val entriesMethod = dexFile.javaClass.getMethod("entries")
-                @Suppress("UNCHECKED_CAST")
-                val entries = entriesMethod.invoke(dexFile) as? java.util.Enumeration<String> ?: continue
-
-                var count = 0
-                while (entries.hasMoreElements()) {
-                    val className = entries.nextElement()
-                    if (className.startsWith(packageName) &&
-                        (includeInner || !className.contains('$'))
-                    ) {
-                        try {
-                            val c = Class.forName(className, false, classLoader)
-                            classes.add(c)
-                            count++
-                        } catch (_: Throwable) { }
+        methodSignatures: List<String>,
+        nameHints: List<String> = emptyList()
+    ): List<Class<*>> {
+        val parsed = methodSignatures.map { sig ->
+            val parts = sig.split(":")
+            Triple(parts.getOrElse(0) { "" }, parts.getOrElse(1) { "" },
+                parts.getOrElse(2) { "" }.split(",").filter { it.isNotEmpty() })
+        }
+        val pool = poolClassNames(classLoader, packageName, nameHints)
+        val out = ArrayList<Class<*>>(8)
+        for (n in pool) {
+            val c = loadClass(n, classLoader) ?: continue
+            runCatching {
+                val ok = parsed.all { (mn, rt, pts) ->
+                    c.declaredMethods.any { m ->
+                        (m.name == mn || m.name.lowercase().contains(mn.lowercase())) &&
+                            (rt.isEmpty() || m.returnType.name.contains(rt)) &&
+                            (pts.isEmpty() || m.parameterTypes.size == pts.size)
                     }
                 }
-                if (count > 0) {
-                    HookUtils.log("ClassFinder: 从 dex 元素收集到 $count 个类")
-                }
+                if (ok) out.add(c)
             }
-        } catch (_: Throwable) {
-            // 可能不是 BaseDexClassLoader，尝试 delegate
         }
+        return out
+    }
 
-        // 检查是否有 delegate ClassLoader（加固场景）
-        try {
-            val delegateField = classLoader.javaClass.getDeclaredField("delegate")
-            delegateField.isAccessible = true
-            val delegate = delegateField.get(classLoader) as? ClassLoader
-            if (delegate != null && delegate != classLoader) {
-                collectClassesFromClassLoader(delegate, packageName, classes, includeInner)
+    /** 按字段签名特征找类 */
+    fun findByFieldSignature(
+        classLoader: ClassLoader,
+        packageName: String,
+        fieldSignatures: List<String>,
+        nameHints: List<String> = emptyList()
+    ): List<Class<*>> {
+        val parsed = fieldSignatures.map { sig ->
+            val parts = sig.split(":")
+            parts.getOrElse(0) { "" } to parts.getOrElse(1) { "" }
+        }
+        val pool = poolClassNames(classLoader, packageName, nameHints)
+        val out = ArrayList<Class<*>>(8)
+        for (n in pool) {
+            val c = loadClass(n, classLoader) ?: continue
+            runCatching {
+                val ok = parsed.all { (fn, ft) ->
+                    c.declaredFields.any { f ->
+                        (f.name == fn || f.name.lowercase().contains(fn.lowercase())) &&
+                            (ft.isEmpty() || f.type.name.contains(ft))
+                    }
+                }
+                if (ok) out.add(c)
             }
-        } catch (_: Throwable) { }
-
-        // 检查 parent ClassLoader
-        try {
-            val parent = classLoader.parent
-            if (parent != null && parent != classLoader && parent != ClassLoader.getSystemClassLoader()) {
-                collectClassesFromClassLoader(parent, packageName, classes, includeInner)
-            }
-        } catch (_: Throwable) { }
+        }
+        return out
     }
 
     /**
-     * 通过类中包含的字符串常量搜索类
+     * 候选类名池：先按名字特征缩到很小，再考虑整包。
+     * 这是让特征查找在十万级宿主上还能跑的关键。
+     */
+    private fun poolClassNames(
+        classLoader: ClassLoader,
+        packageName: String,
+        nameHints: List<String>
+    ): List<String> {
+        if (nameHints.isNotEmpty()) {
+            val hit = classNamesInPackage(classLoader, packageName, includeInner = true, limit = 60_000)
+                .filter { n -> nameHints.any { n.contains(it, ignoreCase = true) } }
+                .take(400)
+            if (hit.isNotEmpty()) return hit
+        }
+        // 退一步：混淆包根下名字带关键词的类
+        if (nameHints.isNotEmpty()) {
+            val roots = obfuscatedRoots(classLoader)
+            val hit = ArrayList<String>()
+            for (r in roots) {
+                hit.addAll(
+                    classNamesInPackage(classLoader, r, includeInner = true, limit = 60_000)
+                        .filter { n -> nameHints.any { n.contains(it, ignoreCase = true) } }
+                )
+                if (hit.size >= 400) break
+            }
+            if (hit.isNotEmpty()) return hit.take(400)
+        }
+        return classNamesInPackage(classLoader, packageName, includeInner = true, limit = 400)
+    }
+
+    /**
+     * 按字符串特征找类。
      *
-     * 原理: 遍历类的所有常量池字符串，匹配目标关键词。
-     * 适用于: 通过特征字符串（如 "auto_play_key"）定位混淆后的类。
+     * 之前这个方法只读注解 / String 静态字段 / 方法名，像 `auto_play_key` 这种写在
+     * 方法体里的字符串常量一个也搜不到，所以自动播放、分享面板的字符串适配从来没生效。
      *
-     * @param classLoader 类加载器
-     * @param packageName 包名前缀
-     * @param keywords 要搜索的关键词列表（全部命中才算匹配）
-     * @return 匹配的 Class 列表
+     * 现在两级：
+     *   1) 项目里其实已经集成了 DexKit（org.luckypray:dexkit 2.1.0），优先用它
+     *   2) DexKit 拿不到时退到 [DexStringIndex]（自己解析 dex 字符串池 + const-string 指令）。
+     *      Xposed 注入的宿主进程里 libdexkit.so 加载失败很常见，这层兜底是必要的。
      */
     fun findByStringConstants(
         classLoader: ClassLoader,
         packageName: String,
         keywords: List<String>
     ): List<Class<*>> {
-        val results = mutableListOf<Class<*>>()
+        val names = findClassNamesByStrings(classLoader, listOf(packageName), keywords)
+        val out = ArrayList<Class<*>>(8)
+        for (n in names) loadClass(n, classLoader)?.let { out.add(it) }
+        return out
+    }
 
-        try {
-            val classes = getClassesInPackage(classLoader, packageName, includeInner = true)
-            HookUtils.log("ClassFinder: 字符串搜索, 扫描 ${classes.size} 个类, 关键词=$keywords")
-
-            for (clazz in classes) {
-                try {
-                    val allStrings = getClassConstantStrings(clazz, classLoader)
-                    var matchCount = 0
-                    for (keyword in keywords) {
-                        if (allStrings.any { it.contains(keyword, ignoreCase = true) }) {
-                            matchCount++
-                        }
-                    }
-                    if (matchCount == keywords.size) {
-                        results.add(clazz)
-                        HookUtils.log("ClassFinder: 字符串匹配: ${clazz.name}")
-                    }
-                } catch (_: Throwable) { }
-            }
-        } catch (t: Throwable) {
-            HookUtils.log("ClassFinder: 字符串搜索失败: ${t.message}")
-        }
-
-        HookUtils.log("ClassFinder: 字符串搜索完成, 找到 ${results.size} 个类")
-        return results
+    /** 资源名特征（share_panel 之类）本质也是字符串常量 */
+    fun findByResourceRefs(classLoader: ClassLoader, resourceNames: List<String>): List<Class<*>> {
+        val names = findClassNamesByStrings(classLoader, emptyList(), resourceNames)
+        val out = ArrayList<Class<*>>(8)
+        for (n in names) loadClass(n, classLoader)?.let { out.add(it) }
+        return out
     }
 
     /**
-     * 获取类中所有字符串常量
-     * 通过反射 DexFile / Dex 的字符串池实现。
-     * 简化实现: 检查类的字段值、方法名、类名等可见字符串。
+     * 字符串特征 -> 类名列表（只出名字，不加载类）。
+     * @param packages 限定包前缀，空表示不限定
      */
-    private fun getClassConstantStrings(clazz: Class<*>, classLoader: ClassLoader): List<String> {
-        val strings = mutableListOf<String>()
-
-        try {
-            // 1. 类名、包名
-            strings.add(clazz.name)
-            strings.add(clazz.simpleName)
-
-            // 2. 字段名（不读取字段值，避免触发 <clinit> 导致类初始化崩溃）
-            for (f in clazz.declaredFields) {
-                strings.add(f.name)
-            }
-
-            // 3. 方法名
-            for (m in clazz.declaredMethods) {
-                strings.add(m.name)
-            }
-
-            // 4. 尝试从 dex 中读取字符串常量（更全面）
-            try {
-                val dexStrings = getDexStringsForClass(clazz, classLoader)
-                strings.addAll(dexStrings)
-            } catch (_: Throwable) { }
-
-        } catch (_: Throwable) { }
-
-        return strings.distinct()
-    }
-
-    /**
-     * 从 DexFile 中读取类的字符串常量
-     * 通过反射 dalvik.system.DexFile 获取类的字符串。
-     */
-    private fun getDexStringsForClass(clazz: Class<*>, classLoader: ClassLoader): List<String> {
-        val strings = mutableListOf<String>()
-        try {
-            // 尝试读取类的所有注解值（字符串类型）
-            for (annotation in clazz.declaredAnnotations) {
-                try { strings.add(annotation.annotationClass.simpleName ?: "") } catch (_: Throwable) {}
-            }
-
-            // 遍历方法的注解和异常
-            for (m in clazz.declaredMethods) {
-                try {
-                    for (ex in m.exceptionTypes) {
-                        strings.add(ex.name)
-                    }
-                    // 添加参数类型名
-                    for (p in m.parameterTypes) {
-                        strings.add(p.name)
-                    }
-                } catch (_: Throwable) {}
-            }
-
-            // 字段类型名
-            for (f in clazz.declaredFields) {
-                try { strings.add(f.type.name) } catch (_: Throwable) {}
-            }
-
-            // R8 混淆类: 检查类中所有字段的常量值
-            for (f in clazz.declaredFields) {
-                try {
-                    if (f.type == String::class.java) {
-                        f.isAccessible = true
-                        val v = f.get(null) as? String
-                        if (v != null && v.length > 3 && v.length < 200) {
-                            strings.add(v)
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }
-        } catch (_: Throwable) { }
-
-        return strings
-    }
-
-    /**
-     * 通过资源 ID 使用特征搜索类（新版抖音 R8 混淆专用）
-     *
-     * 新版抖音使用 R8 混淆，应用类全部在 yyds 包下。
-     * 通过搜索类中引用的布局/ID资源名来定位目标类。
-     *
-     * @param classLoader 类加载器
-     * @param resourceNames 资源名列表（如 "share_bottom_sheet", "share_hsv"）
-     * @return 匹配的 Class 列表
-     */
-    fun findByResourceRefs(
+    fun findClassNamesByStrings(
         classLoader: ClassLoader,
-        resourceNames: List<String>
-    ): List<Class<*>> {
-        val results = mutableListOf<Class<*>>()
-        try {
-            val classes = getClassesInPackage(classLoader, "yyds", includeInner = true)
-            HookUtils.log("ClassFinder: 资源引用搜索, 扫描 ${classes.size} 个 yyds 类")
+        packages: List<String>,
+        keywords: List<String>
+    ): List<String> {
+        if (keywords.isEmpty()) return emptyList()
 
-            for (clazz in classes) {
-                try {
-                    val allStrings = getClassConstantStrings(clazz, classLoader)
-                    if (resourceNames.any { resName ->
-                            allStrings.any { it.contains(resName, ignoreCase = true) }
-                        }) {
-                        results.add(clazz)
-                    }
-                } catch (_: Throwable) {}
-            }
-        } catch (t: Throwable) {
-            HookUtils.log("ClassFinder: 资源引用搜索失败: ${t.message}")
+        val viaDexKit = DexKitManager.findClassesByStrings(
+            keywords,
+            packages.ifEmpty { listOf("com.ss.android.ugc.aweme", "yyds", "X", "Y", "O") }
+        )
+        if (viaDexKit.isNotEmpty()) {
+            HookUtils.log("ClassFinder: DexKit 命中 [$keywords] -> ${viaDexKit.size} 个类")
+            return viaDexKit
         }
-        return results
+        HookUtils.log("ClassFinder: DexKit 未命中 [$keywords]，退回自带 dex 索引")
+
+        val roots = obfuscatedRoots(classLoader).toSet()
+        val out = LinkedHashSet<String>()
+        for (d in DexStringIndex.classesUsingStrings(classLoader, keywords)) {
+            val n = descriptorToName(d)
+            when {
+                packages.isEmpty() -> out.add(n)
+                packages.any { n.startsWith(it) } -> out.add(n)
+                roots.contains(n.substringBefore('.')) -> out.add(n)
+            }
+        }
+        HookUtils.log("ClassFinder: dex 索引命中 [$keywords] -> ${out.size} 个类")
+        return out.toList()
     }
 
-    /**
-     * 清除缓存
-     */
+    fun descriptorToName(desc: String): String = desc.trim('/').replace('/', '.').let {
+        if (it.startsWith("L") && it.endsWith(";")) it.substring(1, it.length - 1) else it
+    }
+
+    fun nameToDescriptor(name: String): String = "L" + name.replace('.', '/') + ";"
+
     fun clearCache() {
-        classCache.clear()
-        scannedClassLoaders.clear()
+        resolved.clear()
+        nameIndex.clear()
+        rootsCache.clear()
     }
 
-    /**
-     * 获取缓存大小
-     */
-    fun cacheSize(): Int = classCache.size
+    fun cacheSize(): Int = resolved.size
 }

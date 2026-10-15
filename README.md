@@ -46,22 +46,44 @@
 
 ## 适配
 
-- 抖音 39.6.0 ~ 40.0.0（40.0.0 已适配，39.8.0 已验证）
+- 抖音 40.7.0 已实测适配（55 个 dex / 437MB 全量扫描验证）
 - Android 9.0+ (API 28)
 - LSPosed 框架 (1.8+ 或 2.0.x)
 
 ### 自动适配机制
 
 模块内置 **AdaptationManager**，在首次运行时自动检测抖音版本并执行以下扫描：
-1. **Aweme 类** — 通过 DexKit 字符串特征或 ClassFinder 候选列表定位
-2. **yyds 混淆包** — 新版抖音 R8 全量混淆后所有应用类在 yyds 包下
-3. **分享面板** — 通过 layout/share_bottom_sheet + share_hsv 等 ID 定位
-4. **AutoPlayController** — 通过 auto_play_key 字符串特征定位
-5. **网络库** — 自动检测 Cronet / OkHttp / ExoPlayer 等版本
-6. **热更新框架** — 检测字节跳动自研 / Tinker / Sophix 等
-7. **广告 SDK** — 检测穿山甲 / 广点通 / 快手 / 百度 等
+1. **Aweme 类** — 候选列表优先，`com.ss.android.ugc.aweme.feed.model.Aweme` 在 40.7.0 仍可用
+2. **混淆包发现** — 动态识别 R8 混淆出的包根，不写死包名
+3. **分享面板** — 通过 `share_panel` / `share_bottom` / `SharePanel` 字符串特征 + presenter 类锚点定位
+4. **AutoPlayController** — 语义类名锚定 + `auto_play_key` 字符串特征（读 dex 字符串池）
+5. **网络库** — 自动检测 ttnet(Cronet) / OkHttp / 自研播放器
+6. **热更新框架** — 检测字节 ies patch / Tinker / Sophix
+7. **广告 SDK** — 检测穿山甲 / 广点通 / 快手 / 百度
 
-适配结果缓存到文件，下次启动直接读取，无需重复扫描。
+适配结果缓存到文件（带 APK 指纹，同版本号重打包会自动重扫），下次启动直接读取。
+
+### 40.7.0 实测结果（全量扫描 55 个 dex 得出）
+
+| 探测项 | 结果 |
+|---|---|
+| `Lyyds/` 混淆包 | **不存在**。应用类被打散进 `X` / `Y` / `O` / `m` / `ms` / `j6` 等单双字母根，X、Y 覆盖全部 55 个 dex |
+| `auto_play_key` | 在。归属 `...feed.plato.business.contentconsumption.autoplay.AutoPlayComponent` 和 `AutoPlayViewModel` |
+| `AutoPlayController` | 在 `com.ss.android.ugc.aweme.follow_shoot_fra.play_control`，**不在** autoplay 包下 |
+| `AutoPlayConfig` / `shareAddTool` / `share_bar` | 0 命中（已从锚点里移除） |
+| `share_panel` | 在，66 个类引用（含混淆类与业务类） |
+| `share_bottom_sheet` / `share_hsv` | **已消失**（0 命中），分享面板锚点已换成 `share_panel` / `share_bottom` |
+| Cronet | `org/chromium/net/` 0 命中；`com/ttnet/` 14 个 dex、`CronetUrlRequest` 在（字节 ttnet 分支） |
+| ExoPlayer / Media3 | **都没有**（0 命中），40.7.0 已换自研播放器 |
+| 热更新 | Tinker 0 命中；`com/taobao/sophix/` 0 命中；实际是 `com/ss/android/ugc/aweme/ies` |
+| 广告 SDK | 只有穿山甲 `com/bytedance/sdk/openadsdk`（8 个 dex）；广点通 / 快手 / 百度 0 命中 |
+| `playwm` | **0 命中** —— 去水印的 playwm→play 策略在新版地址结构下已失效，需要换锚点 |
+| `watermark` | 在，40 个 dex 引用（可用于替代 playwm 的水印判定锚点） |
+
+### 已知待修
+
+- `AutoPlayControllerHook` 内部仍引用 `yyds.C1714` / `yyds.InterfaceC1354` / `yyds.C2429` —— 这些是抖音 39.x 的类名，40.7.0 上 `yyds` 包已不存在，该 Hook 目前不生效，需要按新锚点重写
+- `UrlParser` 的 playwm→play 策略在 40.7.0 无命中，需改用 `watermark` 字段或新地址规律
 
 ## 技术架构
 

@@ -1,5 +1,38 @@
 # DYPP 更新日志
 
+## Unreleased (抖音 40.7.0 适配)
+
+### 修复
+
+- **ClassFinder 扫描后全空** — 原实现用 `scannedClassLoaders` 标记「这个 ClassLoader 已扫过」，
+  导致第一次扫完某个包之后所有后续包扫描都直接返回空。改为按 ClassLoader 缓存完整类名列表。
+- **全量 Class.forName 拖垮宿主** — 原实现对整个包做 `Class.forName`，
+  `com.ss.android.ugc.aweme` 是十万级类。改为类名过滤 + 懒加载 + 上限（默认 500）。
+- **字符串特征搜索从来没生效** — 原 `findByStringConstants` 只读注解和 String 静态字段，
+  方法体里的 `auto_play_key` 这类常量一个也搜不到。改为优先走已集成的 DexKit，
+  拿不到时退回新增的 `DexStringIndex`（自己解析 dex 字符串池和 const-string 指令，纯 Kotlin）。
+- **缓存只比版本号** — 抖音同版本号重打包很常见，现在缓存带 APK 指纹（长度+修改时间），不匹配就重扫。
+
+### 适配（全部经 40.7.0 全量 55 dex / 437MB 扫描验证）
+
+- **混淆包动态发现** — README 里「应用类都在 yyds 包下」这条在 40.7.0 已不成立（`Lyyds/` 0 命中），
+  实际被打散进 `X` / `Y` / `O` / `m` / `ms` / `j6` 等单双字母根。改为按根名长度动态识别，保留 yyds 兼容旧版。
+- **AutoPlay 锚点修正** — `auto_play_key` 归属 `...contentconsumption.autoplay.AutoPlayComponent` /
+  `AutoPlayViewModel`；`AutoPlayController` 实际在 `com.ss.android.ugc.aweme.follow_shoot_fra.play_control`。
+  移除 0 命中的 `AutoPlayConfig`。
+- **分享面板锚点更换** — `share_bottom_sheet` / `share_hsv` / `shareAddTool` 在 40.7.0 全部 0 命中，
+  换成 `share_panel`（66 命中）/ `share_bottom` / `SharePanel`，并补上 presenter 类锚点。
+- **Cronet 走 ttnet 分支** — `org/chromium/net/` 0 命中，`com/ttnet/` 14 个 dex 在，候选表已调整。
+- **播放器** — ExoPlayer 与 Media3 在 40.7.0 都不存在，补自研播放器路径，探测不再恒为「未找到」。
+- **热更新** — Tinker / Sophix / mira 均 0 命中，实际是 `com/ss/android/ugc/aweme/ies`，候选表已前置。
+- **广告 SDK** — 仍是全量包扫描改成类名过滤；40.7.0 只有穿山甲在。
+
+### 已知待修
+
+- `AutoPlayControllerHook` 内部仍引用 `yyds.C1714` / `yyds.InterfaceC1354` / `yyds.C2429`（抖音 39.x 类名），
+  40.7.0 上 `yyds` 包已不存在，该 Hook 当前不生效，需要按新锚点重写。
+- `UrlParser` 的 `playwm`→`play` 策略在 40.7.0 0 命中（水印地址结构已变），需改用 `watermark` 字段判定。
+
 ## v3.1.0 (2026-09-20)
 
 ### 适配
