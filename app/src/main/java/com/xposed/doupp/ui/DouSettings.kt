@@ -354,20 +354,21 @@ object DouSettings {
      */
     fun consumeRescanFlag(): Boolean {
         val ctx = com.xposed.doupp.util.ContextHelper.getContext() ?: return false
+        val authority = "content://" + MODULE_PACKAGE + ".settings"
         val flag = try {
-            val b = ctx.contentResolver.call(
-                Uri.parse("content://.settings"), "getAll", null, null
-            )
+            val b = ctx.contentResolver.call(Uri.parse(authority), "getAll", null, null)
             b?.getBoolean("dy_rescan_adaptation", false) == true
-        } catch (_: Throwable) { false }
+        } catch (t: Throwable) {
+            HookUtils.log("DouSettings: 读重扫标记失败: ${t.message}")
+            false
+        }
         if (!flag) return false
         try {
             val extras = android.os.Bundle()
             extras.putBoolean("dy_rescan_adaptation", false)
-            ctx.contentResolver.call(
-                Uri.parse("content://.settings"), "set", null, extras
-            )
+            ctx.contentResolver.call(Uri.parse(authority), "set", null, extras)
         } catch (_: Throwable) { }
+        HookUtils.log("DouSettings: 消费重扫标记成功")
         return true
     }
     private fun putBoolean(key: String, value: Boolean) {

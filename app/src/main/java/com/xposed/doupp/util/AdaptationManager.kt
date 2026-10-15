@@ -70,6 +70,19 @@ object AdaptationManager {
             callback(adaptationResults.entries.map { entry ->
                 AdaptationResult(entry.key, entry.value, entry.value.isNotEmpty(), "缓存命中")
             })
+            // 缓存命中也要尊重设置页的「重新扫描电商适配」。
+            // 必须另起线程：主流程运行时 ContextHelper 的 context 还没就绪，provider 读不到标记
+            Thread {
+                runCatching { Thread.sleep(3000) }
+                val rescan = runCatching {
+                    com.xposed.doupp.ui.DouSettings.consumeRescanFlag()
+                }.getOrDefault(false)
+                if (rescan) {
+                    HookUtils.log("$TAG: 设置页请求重扫，清缓存后重新扫描")
+                    invalidateCache()
+                    startAdaptation(classLoader, douyinVersion, callback)
+                }
+            }.apply { isDaemon = true; name = "dyyds-rescan-check"; start() }
             return
         }
 
@@ -78,6 +91,16 @@ object AdaptationManager {
             try {
                 Thread.sleep(3000) // 延迟3秒，等抖音启动完成
             } catch (_: InterruptedException) { return@Thread }
+
+            // 设置页点了「重新扫描电商适配」：标记在模块 prefs，宿主要走 ContentProvider 通道读。
+            // 必须放在这里而不是主流程 —— 主流程运行时 ContextHelper 的 context 还没就绪，
+            // provider 读不到（表现为"远程 prefs 为空"），标记会被漏掉。
+            runCatching {
+                if (com.xposed.doupp.ui.DouSettings.consumeRescanFlag()) {
+                    invalidateCache()
+                    HookUtils.log("$TAG: 设置页请求重扫，已清除适配结果与缓存")
+                }
+            }
 
             mainHandler.post { showToast("正在适配抖音 v$douyinVersion ...") }
 
@@ -569,7 +592,7 @@ object AdaptationManager {
         DexStringIndex.clear()
         runCatching {
             cacheFile?.takeIf { it.exists() }?.delete()
-            HookUtils.log("$$TAG: 适配缓存已清除，下次启动将重新扫描")
+            HookUtils.log("$TAG: 适配缓存已清除，下次启动将重新扫描")
         }
     }
     fun getAdaptedClasses(feature: String): List<String> {
