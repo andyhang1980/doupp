@@ -628,20 +628,22 @@ class SharePanelHook : BaseHook {
                 return
             }
 
-            val musicUrl = MediaCache.getMusicUrlFromAweme(aweme)
-            if (musicUrl.isNullOrEmpty()) {
+            val candidates = MediaCache.getMusicUrlCandidates(aweme)
+                .filter { it.isNotEmpty() && it.startsWith("http") }
+                .distinct()
+            if (candidates.isEmpty()) {
                 HookUtils.showToast(context, "无法获取音乐地址")
                 return
             }
 
             val musicTitle = MediaCache.getMusicTitleFromAweme(aweme) ?: "music"
             val safeTitle = musicTitle.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(50)
-            val fileName = "${safeTitle}_${System.currentTimeMillis()}.mp3"
+            val fileName = "${safeTitle}_${System.currentTimeMillis()}.${guessAudioExt(candidates.first())}"
 
             HookUtils.showToast(context, "开始下载音乐...")
-            HookUtils.log("$TAG: 下载音乐: $musicUrl")
+            HookUtils.log("$TAG: 下载音乐: 候选 ${candidates.size} 个, 首选 ${candidates.first()}")
 
-            MediaDownloader.download(context, musicUrl, fileName,
+            MediaDownloader.downloadMulti(context, candidates, fileName,
                 onComplete = { uri ->
                     HookUtils.showToast(context, "音乐已保存 ✓")
                 },
@@ -663,32 +665,76 @@ class SharePanelHook : BaseHook {
                 return
             }
 
-            val imageUrls = MediaCache.getImageUrlsFromAweme(aweme)
-            if (imageUrls.isEmpty()) {
+            val perImage = MediaCache.getImageUrlCandidatesFromAweme(aweme)
+            if (perImage.isEmpty()) {
                 HookUtils.showToast(context, "当前内容不是图集")
                 return
             }
 
-            HookUtils.showToast(context, "开始下载 ${imageUrls.size} 张图片...")
+            val total = perImage.size
+            HookUtils.showToast(context, "开始下载 $total 张图片...")
 
             val awemeId = getAwemeId(aweme)
-            for ((index, url) in imageUrls.withIndex()) {
-                val noWatermarkUrl = UrlParser.removeImageWatermark(url)
-                val fileName = "douyin_${awemeId ?: "img"}_${index + 1}.jpg"
+            val successCount = java.util.concurrent.atomic.AtomicInteger(0)
+            val finishedCount = java.util.concurrent.atomic.AtomicInteger(0)
 
-                MediaDownloader.download(context, noWatermarkUrl, fileName,
-                    onComplete = { uri ->
-                        if (index == imageUrls.lastIndex) {
-                            HookUtils.showToast(context, "全部 ${imageUrls.size} 张图片已保存 ✓")
-                        }
+            for ((index, rawCandidates) in perImage.withIndex()) {
+                val ext = guessImageExt(rawCandidates.firstOrNull() ?: "")
+                val candidates = rawCandidates
+                    .map { UrlParser.removeImageWatermark(it) }
+                    .filter { it.isNotEmpty() && it.startsWith("http") }
+                    .distinct()
+                val fileName = "douyin_${awemeId ?: "img"}_${index + 1}.$ext"
+
+                val finishOne = {
+                    if (finishedCount.incrementAndGet() == total) {
+                        val ok = successCount.get()
+                        HookUtils.showToast(
+                            context,
+                            if (ok > 0) "已保存 $ok/$total 张图片 ✓" else "图片下载失败"
+                        )
+                    }
+                }
+
+                HookUtils.log("$TAG: 下载图片 ${index + 1}/$total: 候选 ${candidates.size} 个, 首选 ${candidates.firstOrNull()}")
+
+                MediaDownloader.downloadMulti(context, candidates, fileName,
+                    onComplete = { _ ->
+                        successCount.incrementAndGet()
+                        finishOne()
                     },
                     onError = { t ->
                         HookUtils.log("$TAG: 图片 ${index + 1} 下载失败: ${t.message}")
+                        finishOne()
                     }
                 )
             }
         } catch (t: Throwable) {
             HookUtils.showToast(context, "下载异常: ${t.message}")
+        }
+    }
+
+    /** 音频文件扩展名（音乐 CDN 可能是 mp3/m4a/aac/flac） */
+    private fun guessAudioExt(url: String): String {
+        val path = url.substringBefore('?').lowercase()
+        return when {
+            path.endsWith(".m4a") -> "m4a"
+            path.endsWith(".aac") -> "aac"
+            path.endsWith(".wav") -> "wav"
+            path.endsWith(".flac") -> "flac"
+            else -> "mp3"
+        }
+    }
+
+    /** 图片文件扩展名（按 URL 真实路径后缀，避免 webp/heic 被错标成 jpg） */
+    private fun guessImageExt(url: String): String {
+        val name = url.substringBefore('?').substringAfterLast('/').lowercase()
+        return when (name.substringAfterLast('.', "")) {
+            "png" -> "png"
+            "webp" -> "webp"
+            "heic" -> "heic"
+            "heif" -> "heif"
+            else -> "jpg"
         }
     }
 

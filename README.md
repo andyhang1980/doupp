@@ -106,7 +106,8 @@
 - **跨进程配置**: XSharedPreferences + ContentProvider
 - **去水印**: 外科式 URL 改写（`watermark=1→0` 为主、playwm→play 兜底、白名单水印参数清除；
   保留 `biz_sign`/`x-signature` 等签名参数，不做 URI 重建、不做域名替换）
-- **下载容错**: 全候选后备链逐个回退（`MediaCache.getVideoUrlCandidates` + `MediaDownloader.downloadMulti`，连接超时 6s）
+- **下载容错**: 全候选后备链逐个回退 —— 视频 `MediaCache.getVideoUrlCandidates`、音乐 `getMusicUrlCandidates`、
+  图片 `getImageUrlCandidatesFromAweme`（每张图各自一组镜像），统一走 `MediaDownloader.downloadMulti`，连接超时 6s
 - **类查找**: DexKit 动态搜索 + 硬编码候选列表双兜底
 - **延迟加载**: Application.attach Hook + 双重安装策略
 - **媒体保存**: MediaStore API (Scoped Storage 兼容 Android 10+)

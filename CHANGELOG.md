@@ -35,6 +35,18 @@
   `failed to connect to ...dy.zzcdnx.com/2409:8c20:... after 15000ms`（坏 IPv6 死等）、
   回落到 `v26-chd.douyinvod.com/.../tos-cn-ve-51/...` 直链 **HTTP 404**（那串 hex 是带时效的 URL 签名）。
 
+- **下载音乐 / 下载图片同步接入多候选回退** — 上一版只有视频走了后备链，音乐和图片仍是「单 URL 打不响就死」：
+  1. `MediaCache` 新增 `getMusicUrlCandidates(aweme)`（遍历 `playUrl` / `urlList` / `musicUrl` /
+     `downloadUrl` 等字段收集**全部镜像域名**，再用 `findAudioUrlsInObject` 递归兜底）
+     与 `getImageUrlCandidatesFromAweme(aweme)`（图集**每张图**返回 `urlList` 里的全部镜像，
+     不再只取第一条）。配套新增 `collectUrlsFromObject` / `findAudioUrlsInObject` 两个全量收集 helper。
+     旧的 `getMusicUrlFromAweme` / `getImageUrlsFromAweme` **保留未删**（`VideoFilterHook` 等仍在用）。
+  2. `SharePanelHook.downloadMusic` 改走 `MediaDownloader.downloadMulti`；扩展名按 URL 真实后缀推断
+     （`m4a` / `aac` / `wav` / `flac`，默认 `mp3`），不再硬编码 `.mp3`。
+  3. `SharePanelHook.downloadImages` 改为**每张图各自多候选回退**，扩展名按 URL 后缀推断
+     （`png` / `webp` / `heic` / `heif`，默认 `jpg`）；完成回执改用 `AtomicInteger` 计数，
+     提示「已保存 N/M 张图片 ✓」—— 旧逻辑按 `index == lastIndex` 判定，异步下载下会漏报或误报。
+
 - **点小黄车不显示购物的真元凶 = `BetaInviteHook`** — 它在全局 `Dialog.show()` 的
   `beforeHookedMethod` 里强制遍历 decorView 做 inflate 扫描，把**所有** Dialog 的视图树提前构建
   （含电商预渲染 Dialog），于是小黄车面板预渲染异常、点开空白。改为：

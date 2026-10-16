@@ -628,6 +628,47 @@ object MediaCache {
     }
 
     /**
+     * 获取 Aweme 图集的「每张图的多候选 URL」列表
+     *
+     * 与 getImageUrlsFromAweme 的区别：每张图返回 urlList 里的**全部镜像**（p3-sign / p26-sign /
+     * p5-ex-gddgtc-sign / p9-sign 等），便于逐条回退；抖音图片 CDN 单域名也会出现 404 / 签名过期。
+     */
+    fun getImageUrlCandidatesFromAweme(aweme: Any): List<List<String>> {
+        val result = mutableListOf<List<String>>()
+        try {
+            for (fieldName in IMAGE_FIELD_NAMES) {
+                val imageList = objByNames(aweme, listOf(fieldName))
+                    ?: (getField(aweme, fieldName))
+                if (imageList is List<*>) {
+                    for (image in imageList) {
+                        if (image == null) continue
+                        val cands = LinkedHashSet<String>()
+                        for (listName in URL_LIST_FIELD_NAMES) {
+                            val urlList = objByNames(image, listOf(listName)) as? List<*>
+                                ?: (getField(image, listName) as? List<*>)
+                            urlList?.filterIsInstance<String>()
+                                ?.filter { it.startsWith("http") }
+                                ?.forEach { cands.add(it) }
+                        }
+                        if (cands.isEmpty()) {
+                            val url = findUrlInObject(image, depth = 0)
+                            if (url != null) cands.add(url)
+                        }
+                        if (cands.isNotEmpty()) result.add(cands.toList())
+                    }
+                    if (result.isNotEmpty()) break
+                }
+            }
+        } catch (t: Throwable) {
+            HookUtils.log("MediaCache: getImageUrlCandidates 失败: ${t.message}")
+        }
+        if (result.isNotEmpty()) {
+            HookUtils.log("MediaCache: 图集 ${result.size} 张, 候选数 ${result.map { it.size }}")
+        }
+        return result
+    }
+
+    /**
      * 获取 Aweme 中的音乐 URL
      * 从 Aweme 对象的 music 字段中提取音频播放地址
      */
@@ -661,6 +702,47 @@ object MediaCache {
             HookUtils.log("MediaCache: getMusicUrl 失败: ${t.message}")
         }
         return null
+    }
+
+    /**
+     * 获取 Aweme 音乐的「多候选 URL」列表
+     *
+     * music.playUrl / urlList 通常带多个镜像域名（lf3-music / sf*-ttcdn / p*-luna 等），
+     * 单条不通时逐条回退。返回已去重、仅含 http 的候选。
+     */
+    fun getMusicUrlCandidates(aweme: Any): List<String> {
+        val out = LinkedHashSet<String>()
+        try {
+            var music: Any? = objByNames(aweme, MUSIC_FIELD_NAMES)
+            if (music == null) {
+                for (fieldName in MUSIC_FIELD_NAMES) {
+                    val m = getField(aweme, fieldName)
+                    if (m != null) { music = m; break }
+                }
+            }
+            val musicObj = music
+            if (musicObj == null) {
+                HookUtils.log("MediaCache: 未找到 music 字段")
+                return emptyList()
+            }
+
+            for (urlFieldName in MUSIC_URL_FIELD_NAMES) {
+                val urlObj = objByNames(musicObj, listOf(urlFieldName))
+                    ?: (getField(musicObj, urlFieldName))
+                    ?: continue
+                out.addAll(collectUrlsFromObject(urlObj))
+            }
+
+            // 兜底: 递归收集全部音频 URL
+            findAudioUrlsInObject(musicObj, depth = 0, out = out)
+        } catch (t: Throwable) {
+            HookUtils.log("MediaCache: getMusicUrlCandidates 失败: ${t.message}")
+        }
+        val list = out.filter { it.startsWith("http") }
+        if (list.isNotEmpty()) {
+            HookUtils.log("MediaCache: 音乐候选 ${list.size} 个")
+        }
+        return list
     }
 
     /**
@@ -723,6 +805,60 @@ object MediaCache {
             if (url != null) return url
         }
         return null
+    }
+
+    /** 从对象中收集全部 URL（extractUrlFromObject 的「全量」版，用于多候选取镜像） */
+    private fun collectUrlsFromObject(obj: Any): List<String> {
+        val out = mutableListOf<String>()
+        when (obj) {
+            is String -> if (obj.startsWith("http")) out.add(obj)
+            is List<*> -> obj.filterIsInstance<String>()
+                .filter { it.startsWith("http") }
+                .forEach { out.add(it) }
+            else -> {
+                for (listName in URL_LIST_FIELD_NAMES) {
+                    val urlList = getField(obj, listName) as? List<*>
+                    urlList?.filterIsInstance<String>()
+                        ?.filter { it.startsWith("http") }
+                        ?.forEach { out.add(it) }
+                }
+            }
+        }
+        return out
+    }
+
+    /** 递归收集全部音频 URL（findAudioUrlInObject 的「全量」版） */
+    private fun findAudioUrlsInObject(obj: Any, depth: Int, out: MutableSet<String>) {
+        if (depth > 4) return
+        try {
+            for (field in obj.javaClass.declaredFields) {
+                field.isAccessible = true
+                val value = field.get(obj) ?: continue
+                when (value) {
+                    is String -> {
+                        if (value.startsWith("http") && (
+                            value.contains(".mp3") || value.contains(".m4a") ||
+                            value.contains(".aac") || value.contains("audio") ||
+                            value.contains("music") || value.contains("sound"))) {
+                            out.add(value)
+                        }
+                    }
+                    is List<*> -> {
+                        for (item in value) {
+                            if (item is String && item.startsWith("http") &&
+                                (item.contains(".mp3") || item.contains(".m4a") ||
+                                 item.contains("audio") || item.contains("music"))) {
+                                out.add(item)
+                            }
+                            if (item != null && item !is String) {
+                                findAudioUrlsInObject(item, depth + 1, out)
+                            }
+                        }
+                    }
+                    else -> findAudioUrlsInObject(value, depth + 1, out)
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
     /**
