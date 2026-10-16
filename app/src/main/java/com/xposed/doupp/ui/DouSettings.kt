@@ -28,6 +28,14 @@ object DouSettings {
     const val PREFS_NAME = "douyin_helper_settings"
     const val MODULE_PACKAGE = "com.xposed.doupp"
 
+    /**
+     * 设置页（android.preference.PreferenceActivity）实际写入的文件。
+     * PreferenceActivity 用的是 framework 默认 prefs，名字固定为 `<包名>_preferences`。
+     * hook 进程必须也读它，否则用户在设置页改的开关永远传不到抖音进程
+     * （模块 prefs douyin_helper_settings 只有走过一次 syncFromFramework 才会有值）。
+     */
+    const val FRAMEWORK_PREFS_NAME = "com.xposed.doupp_preferences"
+
     /** 抖音进程本地兜底 prefs 名称（位于抖音 data 目录） */
     const val LOCAL_PREFS_NAME = "doupp_settings"
 
@@ -107,8 +115,9 @@ object DouSettings {
     private const val DEFAULT_SPARK_ENABLED = false
     private const val DEFAULT_SPARK_MESSAGE = "🔥"
     private const val DEFAULT_REGION_UNLOCK = false
-    private const val DEFAULT_AUTO_SIGNIN = true
-    private const val DEFAULT_ANTI_REVOKE = true
+    // 40.7.0 全量扫描 0 命中（锚点类名全是经验猜测），默认关，避免假开关
+    private const val DEFAULT_AUTO_SIGNIN = false
+    private const val DEFAULT_ANTI_REVOKE = false
     private const val DEFAULT_LUCKY_BAG = true
 
     @Volatile
@@ -120,6 +129,18 @@ object DouSettings {
 
     /** ProviderPrefs 最近一次成功刷新的时间戳（用于控制实时刷新频率） */
     private var lastProviderRefresh = 0L
+
+    /** syncFromModuleFile「文件不存在或不可读」只打一次日志，避免每几秒刷屏 */
+    @Volatile
+    private var syncFileMissingLogged = false
+
+    /** tryInitFromProvider 失败日志的退避：连续失败次数（用于指数退避） */
+    @Volatile
+    private var providerFailCount = 0
+
+    /** tryInitFromProvider 下次允许尝试的时刻（毫秒时间戳），用于指数退避 */
+    @Volatile
+    private var providerNextTryAt = 0L
 
     /** ProviderPrefs 两次刷新最小间隔（毫秒） */
     private const val PROVIDER_REFRESH_MS = 3000L
@@ -216,9 +237,13 @@ object DouSettings {
                 }
             }
             if (sourceFile == null) {
-                HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不存在或不可读")
+                if (!syncFileMissingLogged) {
+                    syncFileMissingLogged = true
+                    HookUtils.log("DouSettings: syncFromModuleFile 模块 prefs 文件不存在或不可读（后续静默，SELinux 跨 UID 拦截属正常现象）")
+                }
                 return
             }
+            syncFileMissingLogged = false
             val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
             val builder = factory.newDocumentBuilder()
             val doc = builder.parse(sourceFile)
@@ -463,19 +488,35 @@ object DouSettings {
 
             // 策略0（首选）: LibXposed API 101 官方跨进程桥接
             // getRemotePreferences 由 LSPosed 框架直接桥接模块的 SharedPreferences，
-            // 无需 world-readable 文件权限，也不依赖 ContentProvider 常驻。
+            // 无需 world-readable 文件权限，不依赖 ContentProvider 常驻，也不要求模块 App 进程活着。
+            // 前提：AndroidManifest 必须声明 <meta-data name="xposedsharedprefs" value="true"/>，
+            // 否则 LSPosed 不会重定向模块 prefs 目录，这里永远读到空表。
+            // 两个文件都读：设置页(PreferenceActivity)写的是框架 prefs，模块自身 sync 写的是 PREFS_NAME，
+            // 取 keys 更多的那个，并打日志对比两个文件的实际 keys 数，便于现场判断值到底落在哪。
             try {
-                val remote = com.xposed.doupp.compat.XposedBridge.getRemotePreferences(PREFS_NAME)
-                if (remote != null && remote.all.isNotEmpty()) {
-                    prefs = remote
-                    HookUtils.log("DouSettings: 远程 SharedPreferences 初始化成功 (getRemotePreferences, ${remote.all.size} keys)")
+                var bestName: String? = null
+                var bestPrefs: SharedPreferences? = null
+                var bestCount = 0
+                for (name in listOf(FRAMEWORK_PREFS_NAME, PREFS_NAME)) {
+                    try {
+                        val remote = com.xposed.doupp.compat.XposedBridge.getRemotePreferences(name)
+                        val n = remote?.all?.size ?: 0
+                        HookUtils.log("DouSettings: getRemotePreferences($name) keys=$n")
+                        if (remote != null && n > bestCount) {
+                            bestName = name
+                            bestPrefs = remote
+                            bestCount = n
+                        }
+                    } catch (t: Throwable) {
+                        HookUtils.log("DouSettings: getRemotePreferences($name) 失败: ${t.message}")
+                    }
+                }
+                if (bestPrefs != null && bestCount > 0) {
+                    prefs = bestPrefs
+                    HookUtils.log("DouSettings: 远程 SharedPreferences 初始化成功 ($bestName, $bestCount keys)")
                     return@synchronized
                 }
-                if (remote != null) {
-                    HookUtils.log("DouSettings: 远程 prefs 为空，跳过，尝试其它策略")
-                } else {
-                    HookUtils.log("DouSettings: getRemotePreferences 不可用，尝试其它策略")
-                }
+                HookUtils.log("DouSettings: 远程 prefs 两个文件均为空（检查 manifest 是否声明 xposedsharedprefs），尝试其它策略")
             } catch (t: Throwable) {
                 HookUtils.log("DouSettings: getRemotePreferences 失败: ${t.message}")
             }
@@ -1004,9 +1045,14 @@ object DouSettings {
     @Synchronized
     private fun tryInitFromProvider(): Boolean {
         if (providerBundle != null) return true
+        // 退避：失败后 5s → 15s → 30s → 60s 封顶。
+        // 之前每条 getPrefs() 都会重试一次，模块进程未启动时日志每 ~3.5s 刷一条，毫无意义。
+        val now = System.currentTimeMillis()
+        if (providerNextTryAt != 0L && now < providerNextTryAt) return false
         try {
             val context = com.xposed.doupp.util.ContextHelper.getContext()
             if (context == null) {
+                backoffProvider()
                 return false
             }
             val b = context.contentResolver.call(
@@ -1014,13 +1060,34 @@ object DouSettings {
             )
             if (b != null && !b.isEmpty) {
                 providerBundle = b
+                providerFailCount = 0
+                providerNextTryAt = 0L
                 HookUtils.log("DouSettings: ContentProvider 初始化成功 (keys=${b.size()})")
                 return true
             }
+            backoffProvider()
         } catch (t: Throwable) {
-            HookUtils.log("DouSettings: ContentProvider 方式失败: ${t.javaClass.name}: ${t.message}")
+            if (backoffProvider()) {
+                HookUtils.log("DouSettings: ContentProvider 方式失败(退避第 ${providerFailCount} 档): ${t.javaClass.name}: ${t.message}")
+            }
         }
         return false
+    }
+
+    /**
+     * 记录一次 provider 失败并推进退避窗口。
+     * 返回 true 表示本次应输出日志（前 3 档各打一次，之后静默，避免刷屏）。
+     */
+    private fun backoffProvider(): Boolean {
+        providerFailCount++
+        val delay = when (providerFailCount) {
+            1 -> 5_000L
+            2 -> 15_000L
+            3 -> 30_000L
+            else -> 60_000L
+        }
+        providerNextTryAt = System.currentTimeMillis() + delay
+        return providerFailCount <= 3
     }
 
     /** 重新从 ContentProvider 拉取最新设置 */

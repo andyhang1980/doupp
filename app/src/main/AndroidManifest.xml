@@ -101,6 +101,13 @@
         <meta-data
             android:name="xposedminversion"
             android:value="101" />
+        <!-- 关键：声明本模块使用 XSharedPreferences / getRemotePreferences 跨进程读取自己的 prefs。
+             缺了这条，LSPosed 不会把模块的 prefs 目录重定向到它自己的镜像目录，
+             getRemotePreferences() 就会永远返回空表（抖音进程里所有开关都只能读到编译期默认值）。
+             有了它，抖音进程可直接远程读取模块 prefs，无需模块 App 进程常驻、也不依赖 ContentProvider。 -->
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="true" />
         <meta-data
             android:name="xposeddescription"
             android:value="@string/xposed_description" />
