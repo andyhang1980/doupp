@@ -152,6 +152,24 @@ object DouSettings {
     @Volatile
     private var providerBundle: android.os.Bundle? = null
 
+    /** refreshFromProvider 去重：上次打印日志时的内容指纹（键+值散列） */
+    @Volatile
+    private var providerLogSig = 0
+
+    /** refreshFromProvider 上次打印日志的时间戳（心跳，避免长期无日志） */
+    @Volatile
+    private var providerLogAt = 0L
+
+    /** 上次把 provider 值写入抖音本地 prefs 的时间戳（限频写盘） */
+    @Volatile
+    private var localSyncAt = 0L
+
+    /** provider 日志心跳间隔：内容没变时最多这么久打一条 */
+    private const val PROVIDER_LOG_MS = 60_000L
+
+    /** 本地 prefs 同步最小间隔：避免上游 3s TTL 带动每 3s 写一次 XML */
+    private const val LOCAL_SYNC_MS = 60_000L
+
     /** 设置页进程持有的 Context，用于把 prefs 文件设为跨进程可读写 */
     private var prefsContext: Context? = null
 
@@ -1097,12 +1115,24 @@ object DouSettings {
             if (context == null) return
             val b = context.contentResolver.call(
                 Uri.parse("content://$MODULE_PACKAGE.settings"), "getAll", null, null
-            )
-            if (b != null) {
-                synchronized(this) { providerBundle = b }
+            ) ?: return
+            synchronized(this) { providerBundle = b }
+            val now = System.currentTimeMillis()
+            // 内容指纹：键集合 + 值全量，用于判断设置是否真的变了。
+            // 上游 TTL 是 3s（PROVIDER_REFRESH_MS），没有这层去重时
+            // "ContentProvider 刷新成功 (keys=N)" 会每 3 秒刷一条，纯噪声。
+            val sig = b.keySet().sorted().joinToString(",") { "$it=${b.get(it)}" }.hashCode()
+            val changed = sig != providerLogSig
+            if (changed || now - providerLogAt >= PROVIDER_LOG_MS) {
+                providerLogSig = sig
+                providerLogAt = now
                 HookUtils.log("DouSettings: ContentProvider 刷新成功 (keys=${b.size()})")
-                // 把 provider 权威值同步到抖音本地 prefs，供下次进程启动早期（provider 未就绪时）兜底使用。
-                // 跨 UID 直接读模块文件被 SELinux 拦截，本地 prefs 是唯一可靠的启动早期通道。
+            }
+            // 把 provider 权威值同步到抖音本地 prefs，供下次进程启动早期（provider 未就绪时）兜底使用。
+            // 跨 UID 直接读模块文件被 SELinux 拦截，本地 prefs 是唯一可靠的启动早期通道。
+            // 仅在内容变化或超过限频窗口时才写盘，否则每次刷新都 commit 一次 XML。
+            if (changed || now - localSyncAt >= LOCAL_SYNC_MS) {
+                localSyncAt = now
                 syncProviderToLocal(b)
             }
         } catch (t: Throwable) {

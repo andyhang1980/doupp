@@ -17,6 +17,37 @@
 
 ### 修复
 
+- **模块进程被 HyperOS 杀掉 → 设置「时好时坏」的第二元凶 = 前台服务超时** —
+  `KeepAliveService` 是模块侧唯一的常驻点，它一死，抖音再想拉起模块进程就会被 HyperOS
+  省电策略拒绝（`WakePathChecker` / AutoStart Reject），表现就是开关偶尔生效、日志断档。
+  三处根因都已真机修实：
+  1. `ensureForeground()` 开头的 `if (isForeground) return` 是致命错误 —— 系统**每次**
+     `startForegroundService()` 都会把 `ServiceRecord.fgRequired` 置回 true，要求 5s 内
+     **再调一次** `startForeground()`；而抖音主进程 / `:widgetProvider` /
+     `:sandboxed_process0` 各自 `startFromHook()` 一次，第二次起全被这个 return 吞掉 →
+     `ForegroundServiceDidNotStartInTimeException` → 整个模块进程被杀
+     （真机 15:25:04 pid 16942，还被 MiSight 当崩溃上报，CrashType 里带着 `vn=3.1.0`）。
+     已改为每次都调 `startForeground()`（幂等）并打点 `startForeground 成功`。
+  2. `DouSettings.init()` 排在 `startForeground()` 之前 —— 它会做跨进程 prefs 探测
+     （`ContextHelper` / ContentProvider 带 3s 超时），实测抖音进程内耗时 3.2s，足以吃光
+     5s 窗口。已把 `ensureForeground()` 提到 `onCreate()` 第一句。
+  3. 真正的保活手段 = **绑定**：`onBind()` 返回真实 `Binder`（返回 null 会让绑定立刻断开），
+     `MainHook` / `MainHookLegacy` 在 `startFromHook()` 之后补一句 `bindFromHook()`。
+     真机 `dumpsys activity services com.xposed.doupp` 确认抖音（uid 10501 / pid 10331）
+     `hasBound=true`，模块进程靠前台客户端优先级存活。这一条能成立，是因为查清了 HyperOS
+     的真实态度：`W ActivityManager: Service.startForeground() not allowed due to bg restriction`
+     —— 除装机后 20s 白名单窗口（`code:PACKAGE_REPLACED, duration:20000`）外，
+     `isForeground` 恒为 false、`types=0x00000000`，FGS 其实**从未真正拿到**，
+     只有绑定能钉住进程。
+  4. `AndroidManifest.xml` 配套：`KeepAliveService` 前台类型 `dataSync` → `specialUse`，
+     并声明 `<property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE">`，
+     权限同步换成 `FOREGROUND_SERVICE_SPECIAL_USE`（Android 14+ 后台拉 FGS 的必需条件）。
+
+- **刷屏日志与回调异常** — `DouSettings.refreshFromProvider()` 增加内容指纹去重 + 写盘限频
+  （60s）：`Dou+` 日志由**每 3s 一条**降到 **60s 一条**，一次冷启只剩约 19 条启动期日志。
+  `XC_MethodHook` 的 before / after 回调各自 try/catch 去重上报（同一阶段同一异常类只报一次），
+  `chain.proceed` 仍留在 try 之外 —— 宿主方法自身异常照常上抛，不改变抖音业务逻辑。
+
 - **无水印下载报「无法创建连接」/「下载失败」** — 三层一起修，真机已跑通：
   1. `UrlParser` 按 40.7.0 证据表重写（`playwm` 0 命中、`watermark` 40 个 dex 命中）：
      主策略改为 `watermark=1→0`（**只改值、保留参数**，避免默认值回落），`/playwm/→/play/` 降为兜底；

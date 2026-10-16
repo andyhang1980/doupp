@@ -10,7 +10,9 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 前台服务类型必须与 manifest 声明一致；dataSync 型在 Android 14+ 禁止从 BOOT_COMPLETED 启动，
+         改用 specialUse（14/15 上仍允许自启动），对应权限 FOREGROUND_SERVICE_SPECIAL_USE -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- 抖音商城/电商的静态声明（40.7.0 设备版实测）：
@@ -85,7 +87,12 @@
         <service
             android:name=".KeepAliveService"
             android:exported="true"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <!-- Android 14+ specialUse 必须声明子类型，否则 startForeground 抛 SecurityException -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="xposed_module_settings_sync" />
+        </service>
 
         <!-- 图标预览页（开发期映射用，非入口） -->
         <activity

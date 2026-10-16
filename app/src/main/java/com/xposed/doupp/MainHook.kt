@@ -221,6 +221,9 @@ class MainHook : XposedModule() {
 
                 // 尝试启动模块的 KeepAliveService（确保 ContentProvider 常驻）
                 KeepAliveService.startFromHook(context)
+                // HyperOS 拒绝后台 FGS（Service.startForeground() not allowed due to bg restriction），
+                // 绑定前台应用才是可靠保活手段，故再建一条绑定
+                KeepAliveService.bindFromHook(context)
 
                 // 启动自动适配（延迟3秒，避免启动卡顿）
                 startAdaptationWithToast(realClassLoader)

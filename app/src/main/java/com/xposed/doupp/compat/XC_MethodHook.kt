@@ -43,17 +43,46 @@ abstract class XC_MethodHook {
     internal fun toHooker(): XposedInterface.Hooker {
         return XposedInterface.Hooker { chain ->
             val param = LibXposedParam(chain)
-            beforeHookedMethod(param)
+            // 回调异常必须就地吞掉：旧版 Xposed 的 handleHookedMethod 对每个回调
+            // 单独 try/catch（只记日志，不打断后续回调/原方法）。toLegacyHook 已这么做，
+            // toHooker 原先没有 —— 我们 hook 回调里抛出的异常会顺着
+            // intercept → chain.proceed 直接炸进宿主调用栈，实测会中断宿主
+            // 的 Dialog.show / ViewRootImpl 构造流程。
+            try {
+                beforeHookedMethod(param)
+            } catch (t: Throwable) {
+                logCallbackError("before", t)
+            }
             if (param._resultSetByBefore) {
                 // before 中显式设置了 result → 跳过原方法
                 return@Hooker param.result
             }
-            // 执行原方法（若 before 中改过 args，已体现在 param.args 中）
+            // 执行原方法（若 before 中改过 args，已体现在 param.args 中）。
+            // 注意：proceed 抛出的异常属于宿主方法自身的异常，必须原样上抛，不能吞。
             param._phase = Phase.AFTER
             param.result = chain.proceed(param.args)
-            afterHookedMethod(param)
+            try {
+                afterHookedMethod(param)
+            } catch (t: Throwable) {
+                logCallbackError("after", t)
+            }
             return@Hooker param.result
         }
+    }
+
+    /** 回调异常只记一次（同一阶段同类型异常反复抛时不刷屏） */
+    private fun logCallbackError(phase: String, t: Throwable) {
+        val key = "$phase:${t.javaClass.name}"
+        if (reportedCallbackErrors.add(key)) {
+            com.xposed.doupp.util.HookUtils.log(
+                "XC_MethodHook: $phase 回调异常已吞: ${t.javaClass.name}: ${t.message}"
+            )
+        }
+    }
+
+    private companion object {
+        /** 已上报过的回调异常类型（阶段:异常类名），避免刷屏 */
+        val reportedCallbackErrors = java.util.Collections.synchronizedSet(HashSet<String>())
     }
 
     /**

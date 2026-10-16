@@ -104,6 +104,7 @@ class MainHookLegacy : IXposedHookLoadPackage {
                 // 尝试启动 KeepAliveService（免root框架下无模块进程，失败无害）
                 try {
                     KeepAliveService.startFromHook(context)
+                    KeepAliveService.bindFromHook(context)
                 } catch (_: Throwable) {}
 
                 // 启动自动适配
