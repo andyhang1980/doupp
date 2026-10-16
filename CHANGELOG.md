@@ -42,6 +42,16 @@
   4. `AndroidManifest.xml` 配套：`KeepAliveService` 前台类型 `dataSync` → `specialUse`，
      并声明 `<property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE">`，
      权限同步换成 `FOREGROUND_SERVICE_SPECIAL_USE`（Android 14+ 后台拉 FGS 的必需条件）。
+  5. 真机冷启复验（Android 15 / HyperOS OS3.0.5.0.VMRCNXM）—— 冷启抖音后整条链自动重建：
+     `bindFromHook ok=true` → `mAllowStart_byBindings=PROC_STATE_TOP`（绑定把 uid 顶到 TOP，
+     直接**授权**了这次启动）→ `isForeground=true`、`types=0x40000000`（即 SPECIAL_USE，
+     证明 manifest 改动真实生效）→ 跨进程 provider 活着（`ContentProvider 初始化成功 (keys=43)`、
+     `已同步 32 个设置到本地 prefs`）。9 分钟 soak 里模块进程 pid 恒定未重启，
+     `ForegroundServiceDidNotStartInTime` 计数全程为 0。
+     另需知道：HyperOS 仍会在服务起来约 2 分钟后以 app idle 为由把它停掉
+     （`W ActivityManager: Stopping service due to app idle: u0a1046 -2m7s182ms`），
+     这是系统策略、不必硬抗 —— 绑定生命周期本就等于客户端进程生命周期，抖音每次冷启都会重建，
+     再叠加本地 prefs 的 60s 缓存兜底，设置读取不会掉档。
 
 - **刷屏日志与回调异常** — `DouSettings.refreshFromProvider()` 增加内容指纹去重 + 写盘限频
   （60s）：`Dou+` 日志由**每 3s 一条**降到 **60s 一条**，一次冷启只剩约 19 条启动期日志。
