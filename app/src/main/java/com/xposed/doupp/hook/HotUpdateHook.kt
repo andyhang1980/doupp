@@ -70,12 +70,18 @@ class HotUpdateHook : BaseHook {
         return try {
             DouSettings.isBlockHotUpdateEnabled()
         } catch (_: Throwable) {
-            true // 默认屏蔽热更新
+            false
         }
     }
 
     override fun init(classLoader: ClassLoader) {
         if (installed) return
+        // 未启用时直接跳过，不安装任何 Hook
+        if (!DouSettings.isBlockHotUpdateEnabled()) {
+            HookUtils.log("$TAG: 未启用，跳过")
+            installed = true // 标记已处理，避免延迟安装再进来
+            return
+        }
         HookUtils.safeHook {
             HookUtils.log("$TAG: 开始安装热更新屏蔽 Hook")
 

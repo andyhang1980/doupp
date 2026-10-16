@@ -17,10 +17,53 @@
 
 ### 修复
 
+- **无水印下载报「无法创建连接」/「下载失败」** — 三层一起修，真机已跑通：
+  1. `UrlParser` 按 40.7.0 证据表重写（`playwm` 0 命中、`watermark` 40 个 dex 命中）：
+     主策略改为 `watermark=1→0`（**只改值、保留参数**，避免默认值回落），`/playwm/→/play/` 降为兜底；
+     删掉全部危险写法 —— 域名替换（`v3-web→v1-web`、`douyinvod.com→.net`，换源必 403/404）、
+     URI 重建、泛删 `wm|mark|mask|logo`（会误伤业务与签名参数）。
+     签名参数（`biz_sign` / `x-signature` / `sign` / `X-Gorgon`）一律不碰。
+     新增 `replaceParamValue` / `removeQueryParams` 两个纯字符串 helper，
+     参数排在 query 首位时**不会把 `?` 一起吃掉**（旧实现的 `Regex("[?&]$param=...")` 正是空面板/404 的老病根）。
+  2. `MediaCache.getVideoUrlCandidates(aweme)` 新增：返回**完整后备链**而非单个 URL。
+     排序把**带 `file_id=` 的 `api-play*.amemv.com/aweme/v1/play/` 直链排第一**、
+     自动剔除封面/图片 URL，全部预先去水印。原 `getVideoUrlFromAweme` 保持不变，其它调用点不受影响。
+  3. `MediaDownloader` 重写为 `downloadMulti(context, urls, ...)`：逐个候选回退，
+     连接超时 **15s → 6s**（坏 IPv6 节点不再白等 20 秒），
+     失败提示分类（全部是 DNS 解析失败才提示「网络不可用」，否则报「全部候选下载失败(N个)：原因」）。
+  真机根因证据（三条都抓到过）：`Unable to resolve host "api-play.amemv.com"`（切网瞬间）、
+  `failed to connect to ...dy.zzcdnx.com/2409:8c20:... after 15000ms`（坏 IPv6 死等）、
+  回落到 `v26-chd.douyinvod.com/.../tos-cn-ve-51/...` 直链 **HTTP 404**（那串 hex 是带时效的 URL 签名）。
+
+- **点小黄车不显示购物的真元凶 = `BetaInviteHook`** — 它在全局 `Dialog.show()` 的
+  `beforeHookedMethod` 里强制遍历 decorView 做 inflate 扫描，把**所有** Dialog 的视图树提前构建
+  （含电商预渲染 Dialog），于是小黄车面板预渲染异常、点开空白。改为：
+  before 只做类名校验不 inflate；after 延迟 200ms 异步扫文本；命中改用 `dismiss()`
+  （不再硬改视图）；新增 `SHOPPING_DIALOG_PREFIXES` 电商白名单直接放行
+  （`livesdk.livecommerce` / `shopping` / `ec` / `live.commerce` / `commerce` / `shop` / `livecommerce` / `ecommerce`）。
+
+- **悬浮自动播放按钮每 3 秒刷屏** — `AutoPlayButtonHook` 原来无条件 `postDelayed(3000)` 重跑 `tryInject`。
+  改为按需周期：只在 Feed 且尚未注入时启动，注入成功 / 非 Feed / Activity finishing / 达上限（5 次）即停，
+  并加 `periodicActivity` + `injectAttempts` 防重入。
+
+- **`RegionUnlockHook` / `HotUpdateHook` 默认开却两轮 `hooked=0`** — 默认改为关（设置页开关保留），
+  且未启用时 `installed = true` 直接返回，不再挂空钩子、也不在延迟安装阶段重复执行。
+
 - **点小黄车弹出的商品卡是空的** — `MallHook` 两处误伤：精确名单挂了
   `ECVideoInnerProductCardView` / `ECTagLayout` / `ProductPriceView`（正是小黄车商品卡），
   外加 `hideViews` 按包关键词补捞（`feed.video.product` / `shopcard` + Card|Tag|Shop|Product）
   把商品卡和 presenter 一起 GONE。已全部移除：**商品卡一律不碰，宁可少命中也不误伤**
+
+- **点小黄车不显示购物（上一条修完仍复现）** — 真正的残留源在 `AdHook` 信息流扫描：
+  `block_feed_keywords` 默认开、每 700ms 扫一遍全 decor，而 `DouSettings.getAdKeywords()`
+  内置词表里还留着已删除功能「屏蔽购物视频」的同一套词（购物/商品/购物车/小黄车/领券/
+  价格/购买/下单…），商品面板文字一命中就 `hideCard` 把父容器 GONE —— 等于删除只删了一半。
+  修两层：
+  1. 内置词表只留纯广告词（广告/赞助/推广系 + 自动续火花），购物与直播词全部清掉
+     （直播/带货内容走「视频过滤」的类型判断，不再靠 UI 文案）
+  2. `AdHook.scanView` 入口新增电商子树闸门：全限定类名含
+     shopping/commerce/ecom/goods/shop/cart/mall/sku/product 的整棵子树直接跳过，
+     `hideCard` 再加 8 层祖先兜底 —— **用户自定义关键词也落不进商品面板**
 
 - **所有开关偶发失效（DouSettings 读不到模块设置）** — 根因是跨进程读取链路整条断的：
   - LSPosed 对 `xposedminversion > 92` 的模块会把宿主的 `ContextImpl.getPreferencesDir()`
@@ -71,13 +114,9 @@
 - 参考插件 `0920131537` 的电商锚点（`getLiveCommercePlaceholderBind` / `C0526.m1395` 注册式）
   在 40.7.0 全部 0 命中，无法照搬其做法，本项目商城锚点为独立摸排结果
 - 商城引流弹窗目前按类名拦截已装好，但还没在真实会话里抓到一次弹窗触发日志证明拦下
-- 跨进程设置读取的新链路（XSharedPreferences / 守护进程 prefs 路径）已写好并编译通过，
-  但设备掉线，**尚未上机验证**；要看着日志确认出现
-  `DouSettings: XSharedPreferences 初始化成功` 或 `直接读 LSPosed 的 prefs 目录…成功`
-
-- `AutoPlayControllerHook` 内部仍引用 `yyds.C1714` / `yyds.InterfaceC1354` / `yyds.C2429`（抖音 39.x 类名），
-  40.7.0 上 `yyds` 包已不存在，该 Hook 当前不生效，需要按新锚点重写。
-- `UrlParser` 的 `playwm`→`play` 策略在 40.7.0 0 命中（水印地址结构已变），需改用 `watermark` 字段判定。
+- **跨进程设置读取链路已上机验证通过** — 真机日志确认 `DouSettings` 走 `ContentProvider 初始化成功 (keys=43)`，
+  切到实时模式，开关改动即时生效；设置页进程保持文件 prefs（只读镜像不覆盖可写文件）。
+- ~~`UrlParser` 的 `playwm`→`play` 策略需改用 `watermark` 判定~~ — 已完成（见上方「修复」第一条）
 
 ## v3.1.0 (2026-09-20)
 

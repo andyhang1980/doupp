@@ -591,20 +591,22 @@ class SharePanelHook : BaseHook {
                 return
             }
 
-            val videoUrl = MediaCache.getVideoUrlFromAweme(aweme)
-            if (videoUrl.isNullOrEmpty()) {
+            val candidates = MediaCache.getVideoUrlCandidates(aweme)
+                .map { UrlParser.getNoWatermarkUrl(it) }
+                .filter { it.isNotEmpty() && it.startsWith("http") }
+                .distinct()
+            if (candidates.isEmpty()) {
                 HookUtils.showToast(context, "无法获取视频地址")
                 return
             }
 
-            val noWatermarkUrl = UrlParser.getNoWatermarkUrl(videoUrl)
             val awemeId = getAwemeId(aweme)
             val fileName = "douyin_${awemeId ?: System.currentTimeMillis()}.mp4"
 
             HookUtils.showToast(context, "开始下载视频...")
-            HookUtils.log("$TAG: 下载视频: $noWatermarkUrl")
+            HookUtils.log("$TAG: 下载视频: 候选 ${candidates.size} 个, 首选 ${candidates.first()}")
 
-            MediaDownloader.download(context, noWatermarkUrl, fileName,
+            MediaDownloader.downloadMulti(context, candidates, fileName,
                 onComplete = { uri ->
                     HookUtils.showToast(context, "视频已保存到相册 ✓")
                 },

@@ -19,8 +19,10 @@ class RegionUnlockHook : BaseHook {
     override fun isInstalled(): Boolean = installed
 
     override fun init(classLoader: ClassLoader) {
+        if (installed) return
         if (!DouSettings.isRegionUnlockEnabled()) {
             HookUtils.log("[${tag()}] 未启用，跳过")
+            installed = true
             return
         }
 

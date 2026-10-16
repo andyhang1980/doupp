@@ -35,9 +35,6 @@
     <string name="pref_block_feed_keywords_title">信息流关键词屏蔽</string>
     <string name="pref_block_feed_keywords_summary">隐藏匹配关键词的信息流内容</string>
 
-    <string name="pref_block_shopping_title">屏蔽购物视频</string>
-    <string name="pref_block_shopping_summary">隐藏带购物车、商品标签的视频</string>
-
     <string name="pref_hide_ad_labels_title">隐藏广告标签</string>
     <string name="pref_hide_ad_labels_summary">隐藏视频上的"广告""赞助"等标签角标</string>
 
@@ -162,8 +159,6 @@
 
     <!-- 电商管理 -->
     <string name="category_mall">电商管理</string>
-    <string name="pref_mall_filter_video_title">过滤带货视频</string>
-    <string name="pref_mall_filter_video_summary">按电商标记识别带货内容并划走（判定可能不准，误判请关闭）</string>
     <string name="pref_mall_hide_entry_title">拦截商城营销弹窗与推送横幅</string>
     <string name="pref_mall_hide_entry_summary">按类名拦商城引流弹窗，并隐藏应用内商城推送横幅；不碰商品卡，不影响浏览与下单</string>
 

@@ -58,9 +58,66 @@ class MainHook : XposedModule() {
         const val MALL_PACKAGE = "com.ss.android.ugc.livelite"
         val SUPPORTED_PACKAGES = setOf(TARGET_PACKAGE, MALL_PACKAGE)
         const val MODULE_VERSION = "3.0.1"
+
+        /**
+         * 分组白名单（二分诊断用）：debug.doupp.hooks=share,ad 时只安装命中的组/类；
+         * 空或未设置 = 全部安装（正常模式）。用于快速定位「哪个组的 Hook 破坏了某功能」。
+         */
+        val HOOK_GROUPS = mapOf(
+            "share" to listOf(
+                "SharePanelHook", "ShareHook", "DownloadHook",
+                "DownloadDialogHook", "LivePhotoHook", "BetaInviteHook"
+            ),
+            "ad" to listOf("AdHook", "VideoFilterHook"),
+            "feed" to listOf("FeedHook"),
+            "mall" to listOf("MallHook", "LiveCleanHook"),
+            "auto" to listOf(
+                "AutoPlayControllerHook", "AutoPlayButtonHook",
+                "DoubleClickHook", "ImmersivePlayHook"
+            ),
+            "misc" to listOf(
+                "CommentHook", "BookmarkHook", "SparkHook", "AntiRevokeHook",
+                "AutoSignInHook", "LuckyBagHook", "RegionUnlockHook", "HotUpdateHook"
+            )
+        )
     }
 
     private fun isSupportedPackage(name: String): Boolean = name in SUPPORTED_PACKAGES
+
+    /**
+     * 总开关（诊断用）：adb shell setprop debug.doupp.off 1 后重启抖音即完全不装 Hook；
+     * setprop debug.doupp.off "" 恢复。
+     */
+    private fun isDisabledByProp(): Boolean = try {
+        Class.forName("android.os.SystemProperties")
+            .getMethod("get", String::class.java)
+            .invoke(null, "debug.doupp.off") as? String == "1"
+    } catch (_: Throwable) {
+        false
+    }
+
+    /**
+     * 分组白名单：debug.doupp.hooks=share,ad → 只装这些组（或直接写 Hook 类名）。
+     * 空 = 全部安装。诊断命令：
+     *   adb shell setprop debug.doupp.hooks share
+     *   adb shell setprop debug.doupp.hooks ""    恢复全装
+     */
+    private fun readHookAllowTokens(): List<String> = try {
+        (Class.forName("android.os.SystemProperties")
+            .getMethod("get", String::class.java)
+            .invoke(null, "debug.doupp.hooks") as? String)
+            ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            ?: emptyList()
+    } catch (_: Throwable) {
+        emptyList()
+    }
+
+    private fun isHookAllowed(hook: com.xposed.doupp.hook.BaseHook, tokens: List<String>): Boolean {
+        if (tokens.isEmpty()) return true
+        val name = hook::class.simpleName ?: return true
+        val expanded = tokens.flatMap { t -> HOOK_GROUPS[t.lowercase()] ?: listOf(t) }
+        return expanded.any { name.equals(it, ignoreCase = true) || name.contains(it, ignoreCase = true) }
+    }
 
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
         // 注入 LibXposed 接口到 compat 层
@@ -83,6 +140,11 @@ class MainHook : XposedModule() {
 
         HookUtils.log("========== Dou+ v$MODULE_VERSION ==========")
         HookUtils.log("包名: ${param.getPackageName()}, 进程: $processName")
+
+        if (isDisabledByProp()) {
+            HookUtils.log("debug.doupp.off=1，总开关关闭，跳过全部 Hook")
+            return
+        }
 
         try {
             // 初始化 DexKit：传入宿主 apk 路径，供各 Hook 运行时定位混淆类/方法
@@ -114,6 +176,10 @@ class MainHook : XposedModule() {
 
         val processName = android.os.Process.myProcessName()
         if (processName != packageName && !processName.startsWith("$packageName:main")) {
+            return
+        }
+        if (isDisabledByProp()) {
+            HookUtils.log("debug.doupp.off=1，总开关关闭（onPackageReady），跳过 Hook 安装")
             return
         }
         installHooks(param.getClassLoader())
@@ -243,8 +309,18 @@ class MainHook : XposedModule() {
     ) {
         var successCount = 0
         var failCount = 0
+        val allowTokens = readHookAllowTokens()
+        if (allowTokens.isNotEmpty() && phase == "立即安装") {
+            HookUtils.log("Hook 白名单生效: debug.doupp.hooks=$allowTokens（只装命中组）")
+        }
 
         for (hook in hooks) {
+            if (!isHookAllowed(hook, allowTokens)) {
+                if (phase == "立即安装") {
+                    HookUtils.log("[白名单] ${hook::class.simpleName} 跳过")
+                }
+                continue
+            }
             try {
                 if (hook.isInstalled()) {
                     HookUtils.log("[$phase] ${hook::class.simpleName} 已安装，跳过")

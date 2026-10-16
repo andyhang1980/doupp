@@ -39,6 +39,21 @@ object XposedBridge {
     /** 是否已挂载（宿主进程内为 true） */
     fun isAttached(): Boolean = xposed != null || legacyAttached
 
+    /**
+     * 框架注入的后端 ClassLoader（LibXposed 的 XposedInterface 实现类所在加载器）。
+     *
+     * 框架内部类（de.robv.android.xposed.XSharedPreferences、
+     * org.lsposed.lspd.core.ApplicationServiceClient 等）只有这个加载器（及其父链）看得见；
+     * 用模块自己的 ClassLoader 去 Class.forName 会 ClassNotFoundException。
+     */
+    fun backendClassLoader(): ClassLoader? {
+        return try {
+            xposed?.javaClass?.classLoader
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     /** 是否传统 Xposed API 后端 */
     fun isLegacyMode(): Boolean = legacyAttached
 

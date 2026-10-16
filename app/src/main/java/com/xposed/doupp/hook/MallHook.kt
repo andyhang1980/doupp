@@ -72,19 +72,6 @@ class MallHook : BaseHook {
             "com.ss.android.ugc.aweme.commerce.sdk.push.ShoppingInnerPushWidget",
             "com.ss.android.ugc.aweme.commerce.sdk.push.ShoppingMallLowerPriceWidget"
         )
-
-        /** 40.7.0 带货标记字段（补 VideoFilterHook 只认 39.x 字段名的缺口） */
-        val MALL_FLAGS = listOf(
-            "is_ecommerce", "isEC", "ecVideo", "is_shopping", "isEcomAweme",
-            "is_ecom_aweme", "hasEcomGoodsCard", "has_ecom_goods_card"
-        )
-
-        /** 非空即视为带货的商品/推广结构字段 */
-        val MALL_STRUCT_FIELDS = listOf(
-            "commerce_info", "commerceInfo", "product_info", "productInfo",
-            "ecomVideoInfo", "ecomFunshoppingComponentStruct", "feedShopCardStruct",
-            "commerceStickerInfo"
-        )
     }
 
     override fun tag() = TAG
@@ -99,11 +86,6 @@ class MallHook : BaseHook {
             if (DouSettings.isMallHideEntryEnabled()) {
                 result.append(blockMallDrainageDialogs(classLoader))
                 result.append(hideViews(classLoader, MALL_PUSH_BANNERS, "商城推送横幅"))
-            }
-            if (DouSettings.isMallFilterVideoEnabled()) {
-                result.append("带货过滤=已启用(由 VideoFilterHook 判定) ")
-            } else {
-                result.append("带货过滤=关闭 ")
             }
 
             installed = true

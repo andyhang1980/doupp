@@ -239,6 +239,117 @@ object MediaCache {
     }
 
     /**
+     * 获取 Aweme 中视频的**全部候选无水印 URL**（按可用性排序、已去重、已去水印）。
+     *
+     * 与 getVideoUrlFromAweme 的区别：后者只返回首选一条；本函数返回完整后备链，
+     * 供下载器逐条重试（实测部分 CDN 直链会 404 / 签名过期，必须能回退）。
+     *
+     * 排序依据（40.7.0 实测）：
+     * 1. api-play*.amemv.com/aweme/v1/play/ —— 官方播放接口，可直接 200 下载（最可靠）
+     * 2. bitRateList 各码率干净 playAddr
+     * 3. videoResource 干净源
+     * 4. 其他 CDN 播放直链（douyinvod / tos 等，签名过期会 404，故作后备）
+     * 5. 最长 URL
+     * 6. 带水印标记 URL（交给 UrlParser 去水印）
+     * 7. 其余全部候选（保持原顺序，最后兜底）
+     */
+    fun getVideoUrlCandidates(aweme: Any): List<String> {
+        return try {
+            val video = objByNames(aweme, VIDEO_FIELD_NAMES) ?: return emptyList()
+            val candidates = collectVideoCandidates(video)
+            if (candidates.isEmpty()) return emptyList()
+            val ranked = rankVideoCandidates(video, candidates)
+            HookUtils.log("MediaCache: 候选 ${candidates.size} 个 -> 排序去重后 ${ranked.size} 个")
+            ranked.take(6).forEachIndexed { i, u ->
+                HookUtils.log("MediaCache: 排序[$i] ${u.take(150)}")
+            }
+            ranked
+        } catch (t: Throwable) {
+            HookUtils.log("MediaCache: getVideoUrlCandidates 失败: ${t.message}")
+            emptyList()
+        }
+    }
+
+    /** 收集 Video 对象中所有 http 候选 URL（与 getVideoUrlFromAweme 同口径） */
+    private fun collectVideoCandidates(video: Any): MutableList<String> {
+        val candidates = mutableListOf<String>()
+        fun addFromAddr(addr: Any?) {
+            if (addr == null) return
+            for (listName in URL_LIST_FIELD_NAMES) {
+                val urlList = objByNames(addr, listOf(listName)) as? List<*>
+                    ?: (getField(addr, listName) as? List<*>)
+                urlList?.filterIsInstance<String>()
+                    ?.filter { it.startsWith("http") }
+                    ?.let { candidates.addAll(it) }
+            }
+            if (addr is String && addr.startsWith("http")) candidates.add(addr)
+        }
+        addFromAddr(objByNames(video, listOf("downloadAddr", "download_addr")))
+        for (addrName in PLAY_ADDR_FIELD_NAMES) {
+            addFromAddr(objByNames(video, listOf(addrName)))
+        }
+        for (addrName in com.xposed.doupp.util.VersionCompat.getPlayAddrCandidates()) {
+            addFromAddr(objByNames(video, listOf(addrName)))
+        }
+        addFromAddr(objByNames(video, listOf("videoResource", "mVideoResource")))
+        addFromAddr(objByNames(video, listOf("mediaUrl", "mMediaUrl")))
+        findAllUrlsInObject(video, 0, candidates)
+        return candidates
+    }
+
+    /** 对候选 URL 排序去重（全部经 UrlParser 幂等去水印；跳过图片/封面类 URL） */
+    private fun rankVideoCandidates(video: Any, candidates: List<String>): List<String> {
+        val out = LinkedHashSet<String>()
+        fun isImageLike(u: String): Boolean {
+            val lower = u.lowercase()
+            return lower.contains("douyinpic.com") ||
+                lower.contains("~tplv-") ||
+                lower.contains("sc=cover") ||
+                lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+                lower.endsWith(".png") || lower.endsWith(".webp") ||
+                lower.endsWith(".heic") || lower.endsWith(".heif") ||
+                lower.contains(".jpeg?") || lower.contains(".heic?") ||
+                lower.contains(".webp?") || lower.contains(".jpg?")
+        }
+        fun add(u: String?) {
+            if (u.isNullOrEmpty() || !u.startsWith("http")) return
+            if (isImageLike(u)) return
+            out.add(UrlParser.getNoWatermarkUrl(u))
+        }
+
+        // 1) api-play 官方播放接口（最可靠）。
+        //    优先 file_id 直链（不经 CDN 跳转、实测最快成功），
+        //    再取带 watermark 参数的变体（去水印后可用）
+        candidates.filter {
+            it.contains("amemv.com/aweme/v1/play", ignoreCase = true) &&
+            !it.contains("/play/dash/", ignoreCase = true)
+        }.sortedWith(
+            compareByDescending<String> { it.contains("file_id=", ignoreCase = true) }
+                .thenBy { it.contains("line=1", ignoreCase = true) }
+        ).forEach { add(it) }
+
+        // 2) bitRateList 干净源
+        add(extractBitRatePlayAddr(video))
+
+        // 3) videoResource 干净源
+        add(extractUrlFromVideoResource(video))
+
+        // 4) 其他 CDN 播放直链（不含水印标记）
+        candidates.filter { isCleanPlaybackUrl(it) }.forEach { add(it) }
+
+        // 5) 最长 URL
+        candidates.maxByOrNull { it.length }?.let { if (!isLikelyWatermarked(it)) add(it) }
+
+        // 6) 带水印标记 URL（去水印后可用）
+        candidates.filter { isLikelyWatermarked(it) }.forEach { add(it) }
+
+        // 7) 最后兜底：其余全部候选
+        candidates.forEach { add(it) }
+
+        return out.toList()
+    }
+
+    /**
      * 从 videoResource 对象中提取干净 URL
      */
     private fun extractUrlFromVideoResource(video: Any): String? {

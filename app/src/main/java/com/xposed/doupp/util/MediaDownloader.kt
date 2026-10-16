@@ -15,7 +15,7 @@ import java.net.URL
  * 媒体下载器
  *
  * 功能:
- * - 异步下载媒体文件
+ * - 异步下载媒体文件（支持多候选回退）
  * - 保存到相册 (使用 MediaStore API)
  * - 通知下载进度
  * - 支持视频、图片、实况照片
@@ -28,6 +28,10 @@ object MediaDownloader {
 
     private const val TAG = "MediaDownloader"
     private const val BUFFER_SIZE = 8192
+
+    /** 单次连接超时（短超时便于快速回退到下一个候选，避免死等坏路由） */
+    private const val CONNECT_TIMEOUT_MS = 6000
+    private const val READ_TIMEOUT_MS = 60000
 
     /**
      * 下载媒体文件并保存到相册
@@ -44,60 +48,94 @@ object MediaDownloader {
         fileName: String,
         onComplete: ((Uri?) -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null
+    ) = downloadMulti(context, listOf(url), fileName, onComplete, onError)
+
+    /**
+     * 多候选下载：按顺序逐个尝试，任一成功即回调 onComplete；
+     * 全部失败才回调 onError。
+     *
+     * 抖音 CDN 直链会出现 404 / 签名过期 / 单条路由不通（如坏 IPv6）等情况，
+     * 因此必须支持逐条回退，并在日志里打出真实请求 URL。
+     */
+    fun downloadMulti(
+        context: Context,
+        urls: List<String>,
+        fileName: String,
+        onComplete: ((Uri?) -> Unit)? = null,
+        onError: ((Throwable) -> Unit)? = null
     ) {
         Thread {
-            var connection: HttpURLConnection? = null
-            try {
-                HookUtils.log("$TAG: 开始下载: $fileName")
+            val failures = mutableListOf<String>()
+            for ((index, url) in urls.withIndex()) {
+                var connection: HttpURLConnection? = null
+                try {
+                    HookUtils.log("$TAG: 开始下载[$index/${urls.size - 1}]: $fileName")
+                    HookUtils.log("$TAG: 请求URL[$index]: ${url.take(300)}")
 
-                connection = createConnection(url)
-                if (connection == null) {
-                    HookUtils.log("$TAG: 无法创建连接")
-                    onError?.invoke(RuntimeException("无法创建连接"))
-                    return@Thread
-                }
-
-                val contentType = connection.contentType ?: ""
-                val totalSize = connection.contentLength
-
-                HookUtils.log("$TAG: 文件大小: ${totalSize}bytes, 类型: $contentType")
-
-                connection.inputStream.use { input ->
-                    val uri = saveToMediaStore(context, input, fileName, contentType, totalSize)
-                    if (uri != null) {
-                        HookUtils.log("$TAG: 下载完成: $uri")
-                        onComplete?.invoke(uri)
-                    } else {
-                        HookUtils.log("$TAG: 保存失败")
-                        onError?.invoke(RuntimeException("保存到MediaStore失败"))
+                    val connResult = createConnection(url)
+                    connection = connResult.connection
+                    if (connection == null) {
+                        val reason = connResult.reason ?: "连接失败"
+                        HookUtils.log("$TAG: 候选[$index] 连接失败($reason)，尝试下一个")
+                        failures.add("[$index]$reason")
+                        continue
                     }
+
+                    val contentType = connection.contentType ?: ""
+                    val totalSize = connection.contentLength
+                    HookUtils.log("$TAG: 文件大小: ${totalSize}bytes, 类型: $contentType")
+
+                    connection.inputStream.use { input ->
+                        val uri = saveToMediaStore(context, input, fileName, contentType, totalSize)
+                        if (uri != null) {
+                            HookUtils.log("$TAG: 下载完成: $uri (候选[$index])")
+                            onComplete?.invoke(uri)
+                        } else {
+                            HookUtils.log("$TAG: 保存到MediaStore失败")
+                            onError?.invoke(RuntimeException("保存到MediaStore失败"))
+                        }
+                    }
+                    return@Thread
+                } catch (t: Throwable) {
+                    HookUtils.log("$TAG: 候选[$index] 下载异常: ${t.message}")
+                    failures.add("[$index]${t.message}")
+                } finally {
+                    connection?.disconnect()
                 }
-            } catch (t: Throwable) {
-                HookUtils.log("$TAG: 下载异常: ${t.message}")
-                onError?.invoke(t)
-            } finally {
-                connection?.disconnect()
             }
+            val dnsFail = failures.isNotEmpty() && failures.all {
+                it.contains("Unable to resolve host") || it.contains("No address associated")
+            }
+            val msg = if (dnsFail) {
+                "网络不可用(域名解析失败)，请检查网络后重试"
+            } else {
+                "全部候选下载失败(${urls.size}个)：${failures.firstOrNull() ?: ""}"
+            }
+            HookUtils.log("$TAG: 全部 ${urls.size} 个候选均失败: $failures")
+            onError?.invoke(RuntimeException(msg))
         }.start()
     }
 
+    /** 连接结果：connection 为空时 reason 说明失败原因 */
+    private data class ConnectResult(val connection: HttpURLConnection?, val reason: String?)
+
     /**
      * 创建 HTTP 连接
-     * 
-     * 抖音视频 CDN 需要特定的请求头才能访问
+     *
+     * 抖音视频 CDN 需要特定的请求头才能访问。
      */
-    private fun createConnection(urlStr: String, redirectCount: Int = 0): HttpURLConnection? {
+    private fun createConnection(urlStr: String, redirectCount: Int = 0): ConnectResult {
         if (redirectCount > 5) {
             HookUtils.log("$TAG: 重定向次数过多(>5)，放弃")
-            return null
+            return ConnectResult(null, "重定向过多")
         }
         return try {
             val url = URL(urlStr)
             val connection = url.openConnection() as HttpURLConnection
             connection.apply {
                 requestMethod = "GET"
-                connectTimeout = 15000
-                readTimeout = 30000
+                connectTimeout = CONNECT_TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
                 // 抖音视频 CDN 需要的完整请求头
                 setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
                 setRequestProperty("Referer", "https://www.douyin.com/")
@@ -123,15 +161,16 @@ object MediaDownloader {
             }
 
             if (connection.responseCode == 200) {
-                connection
+                ConnectResult(connection, null)
             } else {
-                HookUtils.log("$TAG: HTTP ${connection.responseCode}: ${connection.responseMessage}")
+                val code = connection.responseCode
+                HookUtils.log("$TAG: HTTP $code: ${connection.responseMessage}")
                 connection.disconnect()
-                null
+                ConnectResult(null, "HTTP $code")
             }
         } catch (t: Throwable) {
             HookUtils.log("$TAG: 创建连接失败: ${t.message}")
-            null
+            ConnectResult(null, t.message ?: "创建连接失败")
         }
     }
 
@@ -226,7 +265,7 @@ object MediaDownloader {
      */
     fun downloadSync(url: String): ByteArray? {
         return try {
-            val connection = createConnection(url) ?: return null
+            val connection = createConnection(url).connection ?: return null
             connection.inputStream.use { input ->
                 val bytes = input.readBytes()
                 bytes

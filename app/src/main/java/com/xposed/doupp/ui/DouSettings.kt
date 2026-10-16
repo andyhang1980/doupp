@@ -39,7 +39,6 @@ object DouSettings {
     const val KEY_REMOVE_AD = "remove_ad"
     const val KEY_SKIP_SPLASH_AD = "skip_splash_ad"
     const val KEY_BLOCK_FEED_KEYWORDS = "block_feed_keywords"
-    const val KEY_BLOCK_SHOPPING = "block_shopping"
     const val KEY_HIDE_AD_LABELS = "hide_ad_labels"
     const val KEY_BLOCK_AD_SDK = "block_ad_sdk"
     const val KEY_AD_KEYWORDS = "ad_keywords"
@@ -68,7 +67,6 @@ object DouSettings {
     const val KEY_REGION_UNLOCK = "region_unlock"
     const val KEY_BLOCK_BETA_INVITE = "block_beta_invite"
     const val KEY_MALL_HIDE_ENTRY = "mall_hide_entry"
-    const val KEY_MALL_FILTER_VIDEO = "mall_filter_video"
     const val KEY_LIVE_CLEAN = "live_clean"
     const val KEY_AUTO_SIGNIN = "auto_signin"
     const val KEY_ANTI_REVOKE = "anti_revoke"
@@ -81,15 +79,13 @@ object DouSettings {
     private const val DEFAULT_COPY_TEXT = true
     private const val DEFAULT_REMOVE_AD = true
     private const val DEFAULT_SKIP_SPLASH_AD = true
-    private const val DEFAULT_BLOCK_FEED_KEYWORDS = true
-    private const val DEFAULT_BLOCK_SHOPPING = true
+    private const val DEFAULT_BLOCK_FEED_KEYWORDS = true
     private const val DEFAULT_BLOCK_BETA_INVITE = true
     private const val DEFAULT_MALL_HIDE_ENTRY = true
-    private const val DEFAULT_MALL_FILTER_VIDEO = false
     private const val DEFAULT_LIVE_CLEAN = false
     private const val DEFAULT_HIDE_AD_LABELS = true
     private const val DEFAULT_BLOCK_AD_SDK = true
-    private const val DEFAULT_BLOCK_HOT_UPDATE = true
+    private const val DEFAULT_BLOCK_HOT_UPDATE = false
     private const val DEFAULT_AUTO_PLAY = false
     private const val DEFAULT_AUTO_PLAY_BUTTON = false
     private const val DEFAULT_SAVE_COMMENT_MEDIA = true
@@ -110,7 +106,7 @@ object DouSettings {
     private const val DEFAULT_BOOKMARK_PROFILE = true
     private const val DEFAULT_SPARK_ENABLED = false
     private const val DEFAULT_SPARK_MESSAGE = "🔥"
-    private const val DEFAULT_REGION_UNLOCK = true
+    private const val DEFAULT_REGION_UNLOCK = false
     private const val DEFAULT_AUTO_SIGNIN = true
     private const val DEFAULT_ANTI_REVOKE = true
     private const val DEFAULT_LUCKY_BAG = true
@@ -281,11 +277,9 @@ object DouSettings {
                     putBoolean(KEY_REMOVE_AD, DEFAULT_REMOVE_AD)
                     putBoolean(KEY_SKIP_SPLASH_AD, DEFAULT_SKIP_SPLASH_AD)
                     putBoolean(KEY_BLOCK_FEED_KEYWORDS, DEFAULT_BLOCK_FEED_KEYWORDS)
-                    putBoolean(KEY_BLOCK_SHOPPING, DEFAULT_BLOCK_SHOPPING)
                     putBoolean(KEY_BLOCK_BETA_INVITE, DEFAULT_BLOCK_BETA_INVITE)
                     putBoolean(KEY_MALL_HIDE_ENTRY, DEFAULT_MALL_HIDE_ENTRY)
-                    putBoolean(KEY_MALL_FILTER_VIDEO, DEFAULT_MALL_FILTER_VIDEO)
-    putBoolean(KEY_LIVE_CLEAN, DEFAULT_LIVE_CLEAN)
+                    putBoolean(KEY_LIVE_CLEAN, DEFAULT_LIVE_CLEAN)
                     putBoolean(KEY_HIDE_AD_LABELS, DEFAULT_HIDE_AD_LABELS)
                     putBoolean(KEY_BLOCK_AD_SDK, DEFAULT_BLOCK_AD_SDK)
                     putBoolean(KEY_BLOCK_HOT_UPDATE, DEFAULT_BLOCK_HOT_UPDATE)
@@ -501,6 +495,8 @@ object DouSettings {
                         return@synchronized
                     }
                     HookUtils.log("DouSettings: XSharedPreferences 可用但为空")
+                } else {
+                    HookUtils.log("DouSettings: XSharedPreferences 不可用（${xspProbeDetail}）")
                 }
             } catch (t: Throwable) {
                 HookUtils.log("DouSettings: XSharedPreferences 失败: ${t.message}")
@@ -517,6 +513,7 @@ object DouSettings {
                     HookUtils.log("DouSettings: LSPosed prefs 文件读取成功 (${lspFile.absolutePath})")
                     return@synchronized
                 }
+                HookUtils.log("DouSettings: 未取到 LSPosed prefs 文件路径（$lspProbeDetail）")
             } catch (t: Throwable) {
                 HookUtils.log("DouSettings: LSPosed prefs 路径探测失败: ${t.message}")
             }
@@ -622,38 +619,73 @@ object DouSettings {
     }
 
     /** 可能持有 LSPosed 注入类的 ClassLoader（按可信度排序，去重） */
+    /**
+     * 所有可能看得见框架内部类的 ClassLoader。
+     *
+     * 关键：LibXposed 后端把模块和框架拆成两个加载器，模块自己的 ClassLoader
+     * **看不到** de.robv.android.xposed.XSharedPreferences / org.lsposed.lspd.*，
+     * 必须把后端（XposedInterface 实现类）的加载器连父链一起加进来。
+     */
     private fun candidateClassLoaders(): List<ClassLoader> {
         val list = mutableListOf<ClassLoader>()
-        runCatching { javaClass.classLoader?.let { list.add(it) } }
-        runCatching { ClassLoader.getSystemClassLoader()?.let { list.add(it) } }
-        runCatching { com.xposed.doupp.util.ContextHelper.getContext()?.classLoader?.let { list.add(it) } }
+        fun add(cl: ClassLoader?) {
+            var c = cl
+            var guard = 0
+            while (c != null && guard++ < 16) {
+                if (!list.contains(c)) list.add(c)
+                c = try { c.parent } catch (_: Throwable) { null }
+            }
+        }
+        runCatching { add(javaClass.classLoader) }
+        runCatching { add(com.xposed.doupp.compat.XposedBridge.backendClassLoader()) }
+        runCatching { add(ClassLoader.getSystemClassLoader()) }
+        runCatching { add(com.xposed.doupp.util.ContextHelper.getContext()?.classLoader) }
         return list
     }
+
+    /** 候选加载器清单，失败时打进日志，方便定位到底哪个加载器能看见框架类 */
+    private fun classLoaderChainDesc(): String =
+        candidateClassLoaders().joinToString(" | ") { it.javaClass.name }
+
+    /** 最近一次 XSharedPreferences 探测失败的原因，仅用于日志 */
+    @Volatile
+    private var xspProbeDetail = "未探测"
+
+    /** 最近一次 LSPosed prefs 路径探测的过程记录，仅用于日志 */
+    @Volatile
+    private var lspProbeDetail = "未探测"
 
     /**
      * 构造 LSPosed 的传统 XSharedPreferences（名字固定，不在模块代码里直接引用，
      * 因此在没有该类的框架上不会 NoClassDefFoundError）。
      *
-     * 构造器形态跨版本不一致，按 (模块包名, prefs 名) / (prefs 名) 两种依次尝试。
+     * XSharedPreferences(packageName, prefFileName)：prefFileName 不带 ".xml"。
+     * 单参构造器吃的是「包名」而不是 prefs 名，这里不能用。
      */
     private fun newLegacyXSharedPreferences(): SharedPreferences? {
         val clsName = "de.robv.android.xposed.XSharedPreferences"
+        val tried = StringBuilder()
         for (cl in candidateClassLoaders()) {
             val cls = try {
                 Class.forName(clsName, false, cl)
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
+                tried.append(cl.javaClass.name).append(":无 ")
                 continue
             }
             val inst = runCatching {
-                // LSPosed/Xposed 的签名是 (模块包名, prefs 文件名不带 .xml)
                 cls.getConstructor(String::class.java, String::class.java)
                     .newInstance(MODULE_PACKAGE, PREFS_NAME)
-            }.getOrNull() ?: continue
+            }.getOrElse { e ->
+                xspProbeDetail = "找到类但构造失败: ${e.javaClass.simpleName}: ${e.message}"
+                return null
+            }
             if (inst is SharedPreferences) {
                 runCatching { cls.getMethod("reload").invoke(inst) }
+                    .onFailure { xspProbeDetail = "reload 失败: ${it.javaClass.simpleName}: ${it.message}" }
                 return inst
             }
         }
+        xspProbeDetail = "类未注入 [${tried.toString().trim()}]"
         return null
     }
 
@@ -665,20 +697,34 @@ object DouSettings {
      */
     private fun resolveLsposedPrefsFile(): java.io.File? {
         val clsName = "org.lsposed.lspd.core.ApplicationServiceClient"
+        val trace = StringBuilder()
         for (cl in candidateClassLoaders()) {
             try {
                 val cls = Class.forName(clsName, false, cl)
-                val instance = cls.getDeclaredField("instance").let { f ->
-                    f.isAccessible = true
-                    f.get(null)
-                } ?: continue
+                trace.append("类OK@${cl.javaClass.simpleName} ")
+                val instance = cls.getDeclaredField("instance").apply { isAccessible = true }.get(null)
+                if (instance == null) {
+                    trace.append("instance=null ")
+                    continue
+                }
                 val base = cls.getMethod("getPrefsPath", String::class.java)
-                    .invoke(instance, MODULE_PACKAGE) as? String ?: continue
+                    .invoke(instance, MODULE_PACKAGE) as? String
+                if (base == null) {
+                    trace.append("getPrefsPath 返回 null ")
+                    continue
+                }
                 val file = java.io.File(base, "$PREFS_NAME.xml")
-                if (file.exists() && file.canRead()) return file
-            } catch (_: Throwable) {
+                trace.append("base=$base exists=${file.exists()} canRead=${file.canRead()}")
+                if (file.exists() && file.canRead()) {
+                    lspProbeDetail = trace.toString()
+                    return file
+                }
+            } catch (t: Throwable) {
+                trace.append(cl.javaClass.simpleName).append(":").append(t.javaClass.simpleName)
+                    .append("(").append(t.message).append(") ")
             }
         }
+        lspProbeDetail = trace.toString().trim().ifEmpty { "类未注入" }
         return null
     }
 
@@ -1012,7 +1058,7 @@ object DouSettings {
                 KEY_AUTO_PLAY, KEY_AUTO_PLAY_FLOATING, KEY_AUTO_PLAY_HIDE,
                 KEY_DOWNLOAD_VIDEO, KEY_DOWNLOAD_MUSIC, KEY_DOWNLOAD_IMAGE,
                 KEY_COPY_TEXT, KEY_REMOVE_AD, KEY_SKIP_SPLASH_AD,
-                KEY_BLOCK_FEED_KEYWORDS, KEY_BLOCK_SHOPPING, KEY_HIDE_AD_LABELS,
+                KEY_BLOCK_FEED_KEYWORDS, KEY_HIDE_AD_LABELS,
                 KEY_BLOCK_AD_SDK, KEY_BLOCK_HOT_UPDATE, KEY_SAVE_COMMENT_MEDIA,
                 KEY_VIDEO_FILTER, KEY_FILTER_LIVE, KEY_FILTER_IMAGE,
                 KEY_FILTER_AD, KEY_FILTER_LONG_VIDEO, KEY_BOOKMARK_ENABLED,
@@ -1072,8 +1118,6 @@ object DouSettings {
     fun isBlockFeedKeywordsEnabled(): Boolean =
         isRemoveAdEnabled() && getPrefs().getBoolean(KEY_BLOCK_FEED_KEYWORDS, DEFAULT_BLOCK_FEED_KEYWORDS)
 
-    fun isBlockShoppingEnabled(): Boolean =
-        isRemoveAdEnabled() && getPrefs().getBoolean(KEY_BLOCK_SHOPPING, DEFAULT_BLOCK_SHOPPING)
     fun isBlockBetaInviteEnabled(): Boolean =
         getPrefs().getBoolean(KEY_BLOCK_BETA_INVITE, DEFAULT_BLOCK_BETA_INVITE)
 
@@ -1082,9 +1126,6 @@ object DouSettings {
 
     fun isLiveCleanEnabled(): Boolean =
         getPrefs().getBoolean(KEY_LIVE_CLEAN, DEFAULT_LIVE_CLEAN)
-
-    fun isMallFilterVideoEnabled(): Boolean =
-        getPrefs().getBoolean(KEY_MALL_FILTER_VIDEO, DEFAULT_MALL_FILTER_VIDEO)
 
     fun isHideAdLabelsEnabled(): Boolean =
         isRemoveAdEnabled() && getPrefs().getBoolean(KEY_HIDE_AD_LABELS, DEFAULT_HIDE_AD_LABELS)
@@ -1099,15 +1140,18 @@ object DouSettings {
      * 广告/关键词屏蔽词集合。
      * 内置默认词 + 用户在设置页自定义的词语（逗号/换行/空格分隔）。
      * 全部转为小写，便于 TextView 文本匹配。
+     *
+     * 内置词只留「纯广告」特征词。购物/商品/购物车/小黄车/领券/价格 这批词
+     * 之前内置在这里，block_feed_keywords 默认开、每 700ms 扫全 decor，
+     * 点小黄车弹出的商品面板文字一命中就被 hideCard 整块 GONE ——
+     * 表现为「点小黄车不显示购物」，和已删除的「屏蔽购物视频」是同一套词的残留。
+     * 按需求（商品卡、小黄车一律不碰）整组清掉；直播/带货类过滤走「视频过滤」的类型判断。
      */
     fun getAdKeywords(): Set<String> {
         val builtin = setOf(
-            "广告", "自动续火花", "推广",
-            "购物", "商品", "直播", "带货", "小店",
-            "价格", "优惠", "折扣", "满减", "秒杀",
-            "购物车", "购买", "下单", "好物", "推荐好物",
-            "橱窗", "小黄车", "进店", "店铺", "领券",
-            "优惠券", "正在直播", "链接在评论区"
+            "广告", "广告主", "赞助", "推广",
+            "广告推广", "商业推广", "合作推广", "品牌广告", "信息流广告",
+            "自动续火花"
         )
         val set = builtin.toMutableSet()
         try {
@@ -1261,13 +1305,9 @@ object DouSettings {
     fun setBlockFeedKeywords(enabled: Boolean) =
         putBoolean(KEY_BLOCK_FEED_KEYWORDS, enabled)
 
-    fun setBlockShopping(enabled: Boolean) =
-        putBoolean(KEY_BLOCK_SHOPPING, enabled)
     fun setBlockBetaInvite(enabled: Boolean) = putBoolean(KEY_BLOCK_BETA_INVITE, enabled)
 
     fun setMallHideEntry(enabled: Boolean) = putBoolean(KEY_MALL_HIDE_ENTRY, enabled)
-
-    fun setMallFilterVideo(enabled: Boolean) = putBoolean(KEY_MALL_FILTER_VIDEO, enabled)
 
     fun setLiveClean(enabled: Boolean) = putBoolean(KEY_LIVE_CLEAN, enabled)
 

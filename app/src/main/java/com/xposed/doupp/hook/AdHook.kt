@@ -18,9 +18,12 @@ import com.xposed.doupp.compat.XposedHelpers
  * 各功能独立开关，均受总开关 remove_ad 控制：
  * 1. 跳过开屏广告 (skip_splash_ad): Hook Activity.onCreate，对含 splash/ad 的 Activity 直接 finish
  * 2. 信息流关键词屏蔽 (block_feed_keywords): 周期扫描 TextView，匹配屏蔽词隐藏整个卡片
- * 3. 屏蔽购物视频 (block_shopping): 检测购物车/商品标签并隐藏整个卡片
- * 4. 隐藏广告标签 (hide_ad_labels): 隐藏视频上的"广告""赞助"等标签角标
- * 5. 拦截广告SDK (block_ad_sdk): Hook 广告 SDK 初始化方法，阻止广告加载
+ * 3. 隐藏广告标签 (hide_ad_labels): 隐藏视频上的"广告""赞助"等标签角标
+ * 4. 拦截广告SDK (block_ad_sdk): Hook 广告 SDK 初始化方法，阻止广告加载
+ *
+ * 已移除：「屏蔽购物视频」。原实现按 TextView 文本（购物车/小黄车/立即购买/领券/优惠券）
+ * 隐藏父容器，分不清带货卡片和小黄车弹窗的商品面板，点小黄车会被整块隐藏 —— 硬性误伤，
+ * 按需求（商品卡、小黄车一律不碰）整段删除。
  */
 class AdHook : BaseHook {
 
@@ -64,6 +67,26 @@ class AdHook : BaseHook {
             "loadAd", "preloadAd", "showAd", "requestAd",
             "registerAd", "setup", "configure"
         )
+
+        /**
+         * 电商子树识别词（按全限定类名匹配，包含包名）。
+         * 命中的视图整棵子树直接跳过 —— 不扫描、不隐藏、不改任何东西。
+         *
+         * 点小黄车弹出的商品面板就挂在这类类名下（40.7.0 实测包名保留语义：
+         * com.bytedance.android.shopping.* / *commerce* / com.bytedance.android.ec.* /
+         * goods/product/shop/cart 后缀）。这是「商品卡、小黄车一律不碰」的硬保证：
+         * 即使用户在设置里自定义了屏蔽词，也不可能把面板 GONE 掉。
+         *
+         * 注意：token 宁可宽不可严 —— 误跳过只是少屏蔽一张卡片（可接受），
+         * 漏跳过就是把商品面板藏掉（用户明确不要）。
+         */
+        private val SHOPPING_SUBTREE_TOKENS = listOf(
+            "shopping", "commerce", "ecom", "goods",
+            "shop", "cart", "mall", "sku", "product"
+        )
+
+        private fun isShoppingSubtree(className: String): Boolean =
+            SHOPPING_SUBTREE_TOKENS.any { className.contains(it, ignoreCase = true) }
     }
 
     override fun tag() = TAG
@@ -97,12 +120,12 @@ class AdHook : BaseHook {
                 })
             }
 
-            // === 功能5: 拦截广告SDK初始化 ===
+            // === 功能4: 拦截广告SDK初始化 ===
             if (DouSettings.isBlockAdSdkEnabled()) {
                 hookAdSdkInit(classLoader)
             }
 
-            // === 信息流扫描（功能2/3/4共用） ===
+            // === 信息流扫描（功能2/3共用） ===
             XposedBridge.hookAllMethods(activityClass, "onResume", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val activity = param.thisObject as? Activity ?: return
@@ -117,7 +140,7 @@ class AdHook : BaseHook {
             })
 
             installed = true
-            HookUtils.log("$TAG: Hook 已安装 (skipSplash=${DouSettings.isSkipSplashAdEnabled()}, feedKw=${DouSettings.isBlockFeedKeywordsEnabled()}, shopping=${DouSettings.isBlockShoppingEnabled()}, adLabel=${DouSettings.isHideAdLabelsEnabled()}, adSdk=${DouSettings.isBlockAdSdkEnabled()})")
+            HookUtils.log("$TAG: Hook 已安装 (skipSplash=${DouSettings.isSkipSplashAdEnabled()}, feedKw=${DouSettings.isBlockFeedKeywordsEnabled()}, adLabel=${DouSettings.isHideAdLabelsEnabled()}, adSdk=${DouSettings.isBlockAdSdkEnabled()})")
         }
     }
 
@@ -194,7 +217,6 @@ class AdHook : BaseHook {
         }
 
         val shouldScan = DouSettings.isBlockFeedKeywordsEnabled() ||
-                DouSettings.isBlockShoppingEnabled() ||
                 DouSettings.isHideAdLabelsEnabled()
 
         if (shouldScan) {
@@ -244,6 +266,12 @@ class AdHook : BaseHook {
         if (view.visibility != View.VISIBLE) return
 
         val className = view.javaClass.name
+
+        // === 商品卡 / 小黄车 / 商城子树一律不碰 ===
+        // 先于任何隐藏判断：命中电商类名（含包名语义）就整棵跳过，
+        // 关键词屏蔽和广告标签隐藏都不会落进这块区域。
+        if (isShoppingSubtree(className)) return
+
         // 跳过侧边栏/抽屉/导航菜单/面板等覆盖层容器（避免扫描菜单项导致空白）
         val skipClassPatterns = setOf("DrawerLayout", "SlidingPaneLayout", "NavigationView",
             "drawer", "slide", "nav", "panel", "menu", "sidebar", "sheet", "scrim")
@@ -261,20 +289,12 @@ class AdHook : BaseHook {
             }
         }
 
-        // === 功能3: 屏蔽购物视频 ===
-        if (DouSettings.isBlockShoppingEnabled() && view is TextView) {
-            val text = try { view.text?.toString() } catch (_: Throwable) { null }
-            if (!text.isNullOrEmpty()) {
-                val lower = text.lowercase()
-                val isShopping = lower.contains("购物车") || lower.contains("小黄车") ||
-                        lower.contains("立即购买") || lower.contains("点击购买") ||
-                        lower.contains("领券") || lower.contains("优惠券")
-                if (isShopping) {
-                    hideCard(view, "购物视频")
-                    return
-                }
-            }
-        }
+        // === 功能3 已移除：屏蔽购物视频（关键词版） ===
+        // 旧实现：扫到 TextView 文本含「购物车/小黄车/立即购买/点击购买/领券/优惠券」就把它的
+        // 父容器 GONE。这组词根本分不清「视频里的带货卡片」和「小黄车弹出的商品面板」——
+        // 面板里全是「立即购买」「领券」「购物车」，结果点开小黄车被整块隐藏，
+        // 表现为「点小黄车没反应 / 商品卡是空的」。属于硬性误伤，按要求（商品卡、小黄车一律不碰）
+        // 整段摘掉。要过滤带货视频请用「视频过滤」里的类型判断（走 Aweme 电商字段，不碰 UI）。
 
         // === 功能4: 隐藏广告标签 ===
         if (DouSettings.isHideAdLabelsEnabled() && view is TextView) {
@@ -303,8 +323,21 @@ class AdHook : BaseHook {
     /**
      * 隐藏命中的卡片容器，但不向上传播太远以免误隐藏正常视频。
      * 只向上找1层（直接父容器），避免把整个 Feed 卡片都隐藏。
+     *
+     * 兜底闸门：命中点往上 8 层内只要出现电商类名，直接不隐藏 ——
+     * 防止「普通 TextView 落在混淆的电商容器里」绕过 scanView 入口的子树跳过。
      */
     private fun hideCard(view: View, reason: String) {
+        var ancestor: View? = view
+        var depth = 0
+        while (ancestor != null && depth < 8) {
+            if (isShoppingSubtree(ancestor.javaClass.name)) {
+                HookUtils.log("$TAG: $reason 命中点在电商子树内，按「商品卡/小黄车一律不碰」跳过")
+                return
+            }
+            ancestor = ancestor.parent as? View
+            depth++
+        }
         HookUtils.log("$TAG: 检测到$reason，隐藏")
         try {
             val parent = view.parent as? View ?: view

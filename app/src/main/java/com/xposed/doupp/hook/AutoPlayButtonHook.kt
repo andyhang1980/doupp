@@ -38,6 +38,11 @@ class AutoPlayButtonHook : BaseHook {
         /** 仅本次 Activity 隐藏（不持久化，下次 onResume 自动恢复） */
         @Volatile
         private var sessionHide = false
+        /** 当前周期检查的 Activity 引用，防止多 Activity 并发 */
+        private var periodicActivity: Activity? = null
+        /** 已尝试注入次数，防止无限重试 */
+        private var injectAttempts = 0
+        private const val MAX_INJECT_ATTEMPTS = 5
     }
 
     override fun tag() = TAG
@@ -53,8 +58,9 @@ class AutoPlayButtonHook : BaseHook {
                     val activity = param.thisObject as? Activity ?: return
                     // 进入新 Activity 时重置 session 隐藏（长按隐藏仅维持到当前 Activity 结束）
                     sessionHide = false
+                    injectAttempts = 0
                     mainHandler.postDelayed({ tryInject(activity) }, 600)
-                    startPeriodicCheck(activity)
+                    // 不再无脑启动周期检查，tryInject 内按需启动
                 }
             })
             installed = true
@@ -62,24 +68,57 @@ class AutoPlayButtonHook : BaseHook {
         }
     }
 
-    private var periodicActivity: Activity? = null
-
-    private fun startPeriodicCheck(activity: Activity) {
+    /**
+     * 按需启动周期性检查：
+     * - 仅在 Feed Activity 且按钮未注入时启动
+     * - 最多尝试 MAX_INJECT_ATTEMPTS 次
+     * - 注入成功、Activity 非 Feed、Activity 销毁时自动停止
+     */
+    private fun startPeriodicCheckIfNeeded(activity: Activity) {
         if (periodicStarted) return
+        if (!isFeedActivity(activity)) return
+        if (activity.isFinishing) return
+        val content = activity.window?.decorView?.findViewById<ViewGroup>(android.R.id.content)
+        if (content?.findViewWithTag<View>(BTN_TAG) != null) return // 已有按钮
+
         periodicStarted = true
         periodicActivity = activity
+        injectAttempts = 0
         mainHandler.post(object : Runnable {
             override fun run() {
                 val a = periodicActivity
                 if (a == null || a.isFinishing) {
                     periodicStarted = false
+                    periodicActivity = null
+                    return
+                }
+                if (!isFeedActivity(a)) {
+                    periodicStarted = false
+                    periodicActivity = null
+                    return
+                }
+                injectAttempts++
+                if (injectAttempts > MAX_INJECT_ATTEMPTS) {
+                    HookUtils.log("$TAG: 达到最大尝试次数 ($MAX_INJECT_ATTEMPTS)，停止周期检查")
+                    periodicStarted = false
+                    periodicActivity = null
                     return
                 }
                 tryInject(a)
-                mainHandler.postDelayed(this, 3000)
+                if (periodicStarted) {
+                    mainHandler.postDelayed(this, 3000)
+                }
             }
         })
-        HookUtils.log("$TAG: 周期性检查已启动（每3秒）")
+        HookUtils.log("$TAG: 按需周期检查已启动（最多 $MAX_INJECT_ATTEMPTS 次，每3秒）")
+    }
+
+    private fun stopPeriodicCheck() {
+        if (periodicStarted) {
+            periodicStarted = false
+            periodicActivity = null
+            HookUtils.log("$TAG: 周期检查已停止")
+        }
     }
 
     private fun isFeedActivity(activity: Activity): Boolean {
@@ -98,22 +137,25 @@ class AutoPlayButtonHook : BaseHook {
                         content.removeView(it)
                     }
                     DouSettings.setAutoPlayButtonShown(false)
+                    stopPeriodicCheck()
                     return@post
                 }
 
                 val hide = DouSettings.isAutoPlayHide()
                 val existing = content.findViewWithTag<View>(BTN_TAG)
-                HookUtils.log("$TAG: tryInject hide=$hide sessionHide=$sessionHide existing=${existing != null}")
+                HookUtils.log("$TAG: tryInject hide=$hide sessionHide=$sessionHide existing=${existing != null} attempts=$injectAttempts")
                 if (hide || sessionHide) {
                     if (existing != null) {
                         content.removeView(existing)
                         HookUtils.log("$TAG: 隐藏设置/会话隐藏生效，移除按钮")
                     }
                     DouSettings.setAutoPlayButtonShown(false)
+                    stopPeriodicCheck()
                     return@post
                 }
                 if (existing != null) {
                     DouSettings.setAutoPlayButtonShown(true)
+                    stopPeriodicCheck()
                     return@post
                 }
 
@@ -125,7 +167,8 @@ class AutoPlayButtonHook : BaseHook {
                 val screenW = if (content.width > 0) content.width else decor.width
                 val screenH = if (content.height > 0) content.height else decor.height
                 if (screenW < btnSize || screenH < btnSize) {
-                    HookUtils.log("$TAG: 布局未就绪 (screen=${screenW}x$screenH)，跳过注入")
+                    HookUtils.log("$TAG: 布局未就绪 (screen=${screenW}x$screenH)，按需启动周期检查")
+                    startPeriodicCheckIfNeeded(activity)
                     return@post
                 }
 
@@ -157,6 +200,7 @@ class AutoPlayButtonHook : BaseHook {
 
                 content.addView(btn, lp)
                 DouSettings.setAutoPlayButtonShown(true)
+                stopPeriodicCheck()
                 HookUtils.log("$TAG: 已注入自动播放按钮 (floating=${DouSettings.isAutoPlayFloating()})")
             } catch (t: Throwable) {
                 HookUtils.log("$TAG: tryInject 失败: ${t.message}")

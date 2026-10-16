@@ -95,7 +95,6 @@ class VideoFilterHook : BaseHook {
                 XposedBridge.hookMethod(idMethod, object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         try {
-                            param.thisObject?.let { checkShoppingOnly(it) }
                             if (!DouSettings.isVideoFilterEnabled()) return
                             val awemeId = param.result as? String ?: return
                             if (awemeId == lastAwemeId) return
@@ -117,7 +116,6 @@ class VideoFilterHook : BaseHook {
                 XposedBridge.hookMethod(videoMethod, object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         try {
-                            param.thisObject?.let { checkShoppingOnly(it) }
                             if (!DouSettings.isVideoFilterEnabled()) return
                             val aweme = param.thisObject ?: return
                             val awemeId = getAwemeId(aweme)
@@ -160,87 +158,12 @@ class VideoFilterHook : BaseHook {
     }
 
     /**
-     * 仅针对购物视频（带货/小黄车/电商组件）的独立跳过。
-     * 走抖音自身的电商标志（isEcomAweme / hasEcomGoodsCard / 电商组件字段），
-     * 不依赖视频文案关键词，适配 39.6~39.8 并尽量抗混淆。
-     */
-    private fun checkShoppingOnly(aweme: Any) {
-        try {
-            if (!DouSettings.isBlockShoppingEnabled()) return
-            val awemeId = getAwemeId(aweme) ?: return
-            if (awemeId == lastAwemeId && lastAwemeId != null) return
-            lastAwemeId = awemeId
-            if (isShoppingContent(aweme)) {
-                HookUtils.log("$TAG: [购物视频] 检测到电商内容，触发表快跳过")
-                triggerFilterSwipe()
-            }
-        } catch (_: Throwable) {}
-    }
-
-    /**
-     * 依据 39.6~39.8 Aweme 模型中的电商字段判断是否为购物视频。
-     * 通过反射逐层兜底，字段名带上序列化名（is_ecom_aweme / has_ecom_goods_card /
-     * commerce_sticker_info / feed_shop_card 等），兼容版本间的混淆。
+     * 已移除「屏蔽购物视频」→ 商品/带货内容一律不处理。
      *
-     * 关键（误杀防护）：isEcomAweme / hasEcomGoodsCard 在 39.8 都是 int 型且官方
-     * isEcomAweme() 语义为 == 1，因此数字判断必须用 == 1，不能 != 0，
-     * 否则字段取值 2/3 等会被误判为电商视频导致普通视频被跳过。
+     * 旧实现按 Aweme 电商字段（isEcomAweme / hasEcomGoodsCard / ecom* 组件）判定带货视频后
+     * 直接跳下一个。问题是「小黄车」就挂在这种视频上，视频被跳走等于点不开小黄车，
+     * 与需求（商品卡、小黄车一律不碰）冲突，整段删除。视频过滤只保留类型判断与关键词。
      */
-    private fun isShoppingContent(aweme: Any): Boolean {
-        return try {
-            val cls = aweme.javaClass
-            // 1) 官方电商标志（int 语义 == 1 / boolean true）
-            val numericFlags = listOf(
-                "isEcomAweme", "is_ecom_aweme",
-                "hasEcomGoodsCard", "has_ecom_goods_card", "isEcomLive"
-            )
-            for (f in numericFlags) {
-                try {
-                    val field = cls.getDeclaredField(f)
-                    field.isAccessible = true
-                    val v = field.get(aweme)
-                    if (v is Boolean && v) return true
-                    if (v is Number && v.toInt() == 1) return true
-                } catch (_: Throwable) {}
-            }
-            // 1.5) 官方 isEcomAweme()/isEcomLive() 方法
-            for (m in listOf("isEcomAweme", "isEcomLive", "isShoppingAweme")) {
-                try {
-                    val method = cls.getDeclaredMethod(m)
-                    if (method.returnType == Boolean::class.javaPrimitiveType && method.parameterTypes.isEmpty()) {
-                        method.isAccessible = true
-                        val r = method.invoke(aweme)
-                        if (r is Boolean && r) return true
-                    }
-                } catch (_: Throwable) {}
-            }
-            // 2) 非空电商专属组件/卡片对象（仅电商专属，普通视频不会有）
-            val objectFlags = listOf(
-                "ecomFunshoppingComponentStruct",
-                "ecomNonCartComponentStruct", "ecomVideoInfo",
-                "commerceStickerInfo", "feedShopCardStruct"
-            )
-            for (f in objectFlags) {
-                try {
-                    val field = cls.getDeclaredField(f)
-                    field.isAccessible = true
-                    if (field.get(aweme) != null) return true
-                } catch (_: Throwable) {}
-            }
-            // 3) 方法兜底：getCommerceStickerInfo / getEcomVideoInfo 返回非空
-            for (m in listOf("getCommerceStickerInfo", "getEcomVideoInfo", "getFeedShopCardStruct")) {
-                try {
-                    val method = cls.getDeclaredMethod(m)
-                    method.isAccessible = true
-                    if (method.invoke(aweme) != null) return true
-                } catch (_: Throwable) {}
-            }
-            false
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
     private fun checkAndFilter(aweme: Any) {
         try {
             if (!DouSettings.isVideoFilterEnabled()) return

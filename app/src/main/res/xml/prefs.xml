@@ -52,12 +52,6 @@
             android:defaultValue="true" />
 
         <CheckBoxPreference
-            android:key="block_shopping"
-            android:title="@string/pref_block_shopping_title"
-            android:summary="@string/pref_block_shopping_summary"
-            android:defaultValue="true" />
-
-        <CheckBoxPreference
             android:key="hide_ad_labels"
             android:title="@string/pref_hide_ad_labels_title"
             android:summary="@string/pref_hide_ad_labels_summary"
@@ -314,12 +308,6 @@
             android:title="@string/pref_mall_hide_entry_title"
             android:summary="@string/pref_mall_hide_entry_summary"
             android:defaultValue="true" />
-
-        <CheckBoxPreference
-            android:key="mall_filter_video"
-            android:title="@string/pref_mall_filter_video_title"
-            android:summary="@string/pref_mall_filter_video_summary"
-            android:defaultValue="false" />
 
     </PreferenceCategory>
 

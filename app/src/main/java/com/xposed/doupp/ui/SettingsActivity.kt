@@ -47,7 +47,7 @@ class SettingsActivity : PreferenceActivity() {
         }
 
         private val adChildKeys = arrayOf(
-            "skip_splash_ad", "block_feed_keywords", "block_shopping",
+            "skip_splash_ad", "block_feed_keywords",
             "hide_ad_labels", "block_ad_sdk", "ad_keywords", "block_hot_update","block_beta_invite"
         )
 
@@ -82,7 +82,6 @@ class SettingsActivity : PreferenceActivity() {
             }
             safePref("skip_splash_ad") { DouSettings.setSkipSplashAd(it as Boolean) }
             safePref("block_feed_keywords") { DouSettings.setBlockFeedKeywords(it as Boolean) }
-            safePref("block_shopping") { DouSettings.setBlockShopping(it as Boolean) }
             safePref("hide_ad_labels") { DouSettings.setHideAdLabels(it as Boolean) }
             safePref("block_ad_sdk") { DouSettings.setBlockAdSdk(it as Boolean) }
             safePref("ad_keywords") { DouSettings.setAdKeywords(it as String) }
@@ -120,7 +119,6 @@ class SettingsActivity : PreferenceActivity() {
             safePref("anti_revoke") { DouSettings.setAntiRevoke(it as Boolean) }
             safePref("lucky_bag") { DouSettings.setLuckyBag(it as Boolean) }
             safePref("mall_hide_entry") { DouSettings.setMallHideEntry(it as Boolean) }
-            safePref("mall_filter_video") { DouSettings.setMallFilterVideo(it as Boolean) }
             safePref("live_clean") { DouSettings.setLiveClean(it as Boolean) }
             findPreference("telegram")?.setOnPreferenceClickListener {
                 openTelegram()

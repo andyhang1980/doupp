@@ -18,8 +18,7 @@
 
 ### 🚫 去除广告（总开关）
 - 跳过开屏广告
-- 信息流关键词屏蔽（屏蔽含广告关键词的视频）
-- 屏蔽购物视频（带货/小黄车/橱窗等）
+- 信息流关键词屏蔽（屏蔽含广告关键词的视频；内置词只剩纯广告词，商品卡/小黄车面板整棵子树不扫描）
 - 隐藏广告标签角标
 - 拦截广告 SDK 初始化
 - 自定义广告关键词
@@ -89,22 +88,25 @@
 | `MallHomeTab` / `BottomMallHomeTab` | 在，但方法名被 R8 全量打散（`LJJLIIIJILLIZJL` 之类），无稳定锚点，入口不隐藏 |
 | `MallDrainageDialog` / `MallDrainageLynxDialog` | 在，链到 `IShareShoppingDialog` → `AppCompatDialog`，可挂 `Dialog.show()` 按类名拦截 |
 | `ShoppingInnerPushWidget` / `ShoppingMallLowerPriceWidget` | 在，继承 `BaseBannerView` → `FrameLayout`，是 View，可直接置 GONE |
-| `playwm` | **0 命中** —— 去水印的 playwm→play 策略在新版地址结构下已失效，需要换锚点 |
-| `watermark` | 在，40 个 dex 引用（可用于替代 playwm 的水印判定锚点） |
+| `playwm` | **0 命中** —— 旧 playwm→play 策略在新版地址结构下失效，已降级为兜底 |
+| `watermark` | 在，40 个 dex 引用（**现行去水印主锚点**：`watermark=1→0`，只改值不删参数） |
+| `biz_sign` / `x-signature` / `sign` | 在，CDN 直链与 api-play 接口的**时效签名**，模块一律不删不改（删了必 404） |
+| `api-play*.amemv.com/aweme/v1/play/` | 下载成功率最高的直链形态（带 `file_id=` 更稳）；douyinvod 的 `tos/cn/...` 直链会 404 |
 
 ### 已知待修
 
 - **商城入口（首页顶部「商城」tab）不隐藏**：`MallHomeTab` / `BottomMallHomeTab` / `BaseHomeTab` 的方法名在 40.7.0 被 R8 全量打散，无稳定锚点
 - **商城页内内容（banner/商品卡/楼层）无法用 native 类名隐藏**：`com.bytedance.android.shopping.*` 下 0 个 native 视图类，页面主体是 Lynx/H5，有意不做
 - 参考插件 `0920131537` 的电商锚点（`getLiveCommercePlaceholderBind` 等）在 40.7.0 全部 0 命中，商城锚点为独立摸排结果
-- `AutoPlayControllerHook` 内部仍引用 `yyds.C1714` / `yyds.InterfaceC1354` / `yyds.C2429` —— 这些是抖音 39.x 的类名，40.7.0 上 `yyds` 包已不存在，该 Hook 目前不生效，需要按新锚点重写
-- `UrlParser` 的 playwm→play 策略在 40.7.0 无命中，需改用 `watermark` 字段或新地址规律
+- 商城引流弹窗已装好锚点，但尚未在真实会话里抓到一次拦下的触发日志
 
 ## 技术架构
 
 - **语言**: Kotlin + Xposed API
 - **跨进程配置**: XSharedPreferences + ContentProvider
-- **去水印**: 多策略 URL 替换（playwm→play / 水印参数清除 / CDN 适配）
+- **去水印**: 外科式 URL 改写（`watermark=1→0` 为主、playwm→play 兜底、白名单水印参数清除；
+  保留 `biz_sign`/`x-signature` 等签名参数，不做 URI 重建、不做域名替换）
+- **下载容错**: 全候选后备链逐个回退（`MediaCache.getVideoUrlCandidates` + `MediaDownloader.downloadMulti`，连接超时 6s）
 - **类查找**: DexKit 动态搜索 + 硬编码候选列表双兜底
 - **延迟加载**: Application.attach Hook + 双重安装策略
 - **媒体保存**: MediaStore API (Scoped Storage 兼容 Android 10+)
